@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="DepCheck">
+  <!-- DepCheck: a package box (dependency) audited with a checkmark. Copper #bf6b3c + ink #14181f, transparent bg. -->
+  <!-- Box base: isometric-ish stacked package -->
+  <!-- top face -->
+  <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+  <!-- left face -->
+  <path d="M10 16 30 26 30 48 10 38 Z" fill="#14181f"/>
+  <!-- right face -->
+  <path d="M50 16 30 26 30 48 50 38 Z" fill="#1d222b"/>
+  <!-- tape seam on top -->
+  <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+  <!-- check badge bottom-right, copper disc + paper tick -->
+  <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+  <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

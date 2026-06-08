@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How DepCheck works — methodology & privacy</title>
+<meta name="description" content="How DepCheck scans your package.json and lockfile for risky npm dependencies: OSV vulnerability lookups, typosquat edit-distance, registry freshness & license checks, and offline hygiene heuristics. Only package names and versions are ever sent — never your code or secrets.">
+<link rel="canonical" href="https://dukotah.github.io/depcheck/about.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="DepCheck">
+<meta property="og:title" content="How DepCheck works — methodology & privacy">
+<meta property="og:description" content="OSV vulnerability lookups, typosquat edit-distance, registry freshness & license checks. Only package names and versions are sent to public registries — never your code. Plus: I found a risky dep, now what?">
+<meta property="og:url" content="https://dukotah.github.io/depcheck/about.html">
+<meta property="og:image" content="https://dukotah.github.io/depcheck/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#faf8f4">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle","headline":"How DepCheck works — methodology & privacy","description":"How DepCheck scans npm dependencies for risk using OSV vulnerability lookups, typosquat edit-distance, registry freshness and license checks, and offline hygiene heuristics, and how it protects your privacy by sending only package names and versions to public registries.","author":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"},"publisher":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"},"mainEntityOfPage":"https://dukotah.github.io/depcheck/about.html"}
+</script>
+<link rel="stylesheet" href="styles.css?v=1">
+<style>
+  /* about-page extras, built on the base tokens */
+  .doc .lede{font-size:clamp(17px,2.3vw,20px);color:var(--muted)}
+  .doc h2{scroll-margin-top:80px}
+  .doc h3{font-family:"Fraunces",Georgia,serif;font-weight:600;font-size:19px;margin:22px 0 6px;letter-spacing:-.01em}
+  .toc{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 6px;padding:0;list-style:none}
+  .toc a{display:inline-block;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:14px;font-weight:600;color:var(--muted)}
+  .toc a:hover{border-color:var(--bay);color:var(--ink);text-decoration:none}
+
+  /* detection table */
+  .tbl-wrap{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
+  table.detect{width:100%;border-collapse:collapse;background:var(--surface);font-size:15px;min-width:560px}
+  table.detect th,table.detect td{text-align:left;padding:12px 16px;border-bottom:1px solid var(--line-2);vertical-align:top}
+  table.detect thead th{font-family:"Hanken Grotesk",sans-serif;font-weight:700;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted-2);background:var(--paper)}
+  table.detect tbody tr:last-child td{border-bottom:none}
+  table.detect code{font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;font-size:13px;background:var(--line-2);padding:2px 6px;border-radius:5px;color:#2c2f36;white-space:nowrap}
+  .sev{display:inline-block;font-weight:700;font-size:12px;letter-spacing:.04em;text-transform:uppercase;padding:3px 9px;border-radius:6px;white-space:nowrap}
+  .sev.fail{background:var(--fail-bg);color:var(--fail)}
+  .sev.high{background:var(--high-bg);color:#9a4d12}
+  .sev.warn{background:var(--warn-bg);color:var(--warn)}
+  .sev.pass{background:var(--pass-bg);color:var(--pass)}
+
+  .callout.warn-callout{background:var(--fail-bg);border-left-color:var(--fail);color:#5e2019}
+  .steps{margin:18px 0;padding-left:0;list-style:none;counter-reset:step}
+  .steps>li{position:relative;padding:4px 0 16px 46px;counter-increment:step}
+  .steps>li::before{content:counter(step);position:absolute;left:0;top:2px;width:30px;height:30px;border-radius:50%;background:var(--copper);color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center;font-family:"Fraunces",serif}
+  .steps>li strong{display:block;margin-bottom:2px}
+  .doc code.inline{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background:var(--line-2);padding:2px 6px;border-radius:5px}
+  .roadmap-note{background:var(--copper-tint);border-radius:12px;padding:16px 20px;margin:22px 0;border:1px solid #efd9c6}
+  .roadmap-note strong{color:var(--copper-deep)}
+
+  /* sibling-suite cross-links */
+  .suite{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:20px 0 6px}
+  .suite a.suite-card{display:block;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);transition:box-shadow var(--transition-fast),transform var(--transition-fast),border-color var(--transition-fast)}
+  .suite a.suite-card:hover{box-shadow:var(--shadow-lift);transform:translateY(-2px);border-color:var(--line-2);text-decoration:none}
+  .suite .suite-name{font-family:"Fraunces",serif;font-weight:600;font-size:18px;color:var(--ink);margin:0 0 4px}
+  .suite .suite-q{color:var(--muted);font-size:14.5px;margin:0}
+  .suite a.suite-card.current{border-color:var(--copper);background:var(--copper-tint)}
+  .suite .suite-name .tag{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--copper-deep);background:#fff;border:1px solid #efd9c6;border-radius:6px;padding:2px 7px;margin-left:8px;vertical-align:middle}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to main content</a>
+
+<header class="masthead" role="banner">
+  <div class="wrap hdr-bar">
+    <a class="brand" href="./" aria-label="DepCheck — go to homepage">
+      <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+        <path d="M10 16 30 26 30 48 10 38 Z" fill="#14181f"/>
+        <path d="M50 16 30 26 30 48 50 38 Z" fill="#1d222b"/>
+        <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+        <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="wordmark">DepCheck</span>
+    </a>
+    <nav class="nav" aria-label="Primary navigation">
+      <a href="about.html" aria-current="page">How it works</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<article class="doc">
+  <div class="wrap narrow">
+    <p class="eyebrow" style="text-align:left">Methodology &amp; privacy</p>
+    <h1>How DepCheck works</h1>
+    <p class="lede">DepCheck reads the dependencies you paste — your <code class="inline">package.json</code> or lockfile — and tells you which ones are a liability: known vulnerabilities, typosquats, abandoned packages, risky licenses, and install-time footguns. This page explains exactly how each check works, what gets sent over the network (only names and versions — never your code), and what to do the moment you find a risky dependency.</p>
+
+    <ul class="toc" aria-label="On this page">
+      <li><a href="#privacy">Privacy stance</a></li>
+      <li><a href="#checks">The checks</a></li>
+      <li><a href="#how">How each check works</a></li>
+      <li><a href="#table">Check → severity table</a></li>
+      <li><a href="#disclaimer">Not a full audit</a></li>
+      <li><a href="#risky">I found a risky dep</a></li>
+      <li><a href="#suite">The ship-safety suite</a></li>
+      <li><a href="#roadmap">Roadmap</a></li>
+    </ul>
+
+    <h2 id="privacy">The privacy stance: only names and versions leave your browser</h2>
+    <p>DepCheck needs to ask public registries two questions about your dependencies — "is this version known-vulnerable?" and "is this package real, fresh, and sensibly licensed?" To answer them, it sends <strong>only the package name and version number</strong> to public services. It never sends your source code, your <code class="inline">.env</code>, your secrets, your lockfile integrity hashes, or anything else from your project.</p>
+    <p>Concretely, that means:</p>
+    <ul>
+      <li><strong>What is sent:</strong> coordinates like <code class="inline">express@4.17.1</code> or <code class="inline">left-pad@1.3.0</code> — the same strings already printed in every public npm page and in your committed lockfile.</li>
+      <li><strong>To whom:</strong> the <a href="https://osv.dev" target="_blank" rel="noopener noreferrer">OSV.dev</a> vulnerability database and the public <a href="https://registry.npmjs.org" target="_blank" rel="noopener noreferrer">npm registry</a> — both public, read-only lookups. No account, no API key, no DepCheck backend in the middle.</li>
+      <li><strong>What is never sent:</strong> your actual code, secrets, environment variables, private package contents, file paths, or any text beyond the dependency coordinates themselves. The parsing of your pasted JSON happens entirely in your browser.</li>
+    </ul>
+    <div class="callout">
+      <strong>Verify it yourself.</strong> Open your browser’s developer tools, switch to the Network tab, and run a scan. Every outbound request carries nothing but package names and versions — the exact coordinates already public on npm. Your code is parsed locally and never appears in a single request body.
+    </div>
+    <p>The offline hygiene checks below don’t make any network request at all — they run purely on the text you paste. The only reason DepCheck talks to the network is to look up vulnerability and registry facts that simply don’t exist on your machine.</p>
+
+    <h2 id="checks">What DepCheck checks</h2>
+    <p>DepCheck runs four families of checks across the dependencies you give it. Two of them (vulnerabilities and registry facts) require a public lookup by name and version; two of them (typosquats and hygiene) run entirely offline in your browser.</p>
+
+    <h2 id="how">How each check works</h2>
+
+    <h3>1. Known vulnerabilities — OSV lookup</h3>
+    <p>For every dependency, DepCheck queries the <strong>OSV (Open Source Vulnerabilities) database</strong> with just the package name and the exact version you have. OSV is Google’s open, aggregated feed of advisories — it folds in the GitHub Advisory Database, npm audit data, and ecosystem CVEs. If your version falls inside the affected range of a published advisory, the package is flagged with the advisory’s own severity (a remote-code-execution or prototype-pollution bug surfaces as <span class="sev fail">Critical</span>/<span class="sev high">High</span>; a lower-impact issue as <span class="sev warn">Medium</span>). The fix is almost always "upgrade to the first patched version," which DepCheck shows you.</p>
+
+    <h3>2. Typosquats — edit-distance heuristic</h3>
+    <p>Attackers publish malware under names one keystroke away from popular packages — <code class="inline">expres</code>, <code class="inline">crossenv</code>, <code class="inline">lodahs</code> — hoping a fat-fingered <code class="inline">npm install</code> pulls the wrong one. DepCheck compares each of your dependency names against a list of high-traffic packages using <strong>Damerau-Levenshtein (transposition-aware) edit-distance</strong> — which also catches swapped adjacent letters, like <code class="inline">loadsh</code> for <code class="inline">lodash</code>. A name that is one or two edits away from a popular package — but isn’t that package — is flagged as a possible typosquat so you can double-check you installed the one you meant. This is a heuristic: a close name can be perfectly legitimate, so DepCheck surfaces it for review rather than condemning it.</p>
+
+    <h3>3. Registry freshness &amp; license — npm metadata</h3>
+    <p>Using the same name-and-version lookup, DepCheck reads public metadata from the npm registry to judge two things. <strong>Freshness:</strong> when was the package last published? A dependency with no release in years may be unmaintained — abandoned packages don’t get security fixes, and an idle, popular package is a prime target for a hijacked-maintainer supply-chain attack. <strong>License:</strong> what license does it ship under? A missing license, or a copyleft/commercial license you weren’t expecting (e.g. GPL in a closed-source product), is flagged so legal surprises don’t reach production.</p>
+
+    <h3>4. Offline hygiene checks</h3>
+    <p>These run on the pasted text alone, with no network call:</p>
+    <ul>
+      <li><strong>Install scripts &amp; risky ranges.</strong> When you paste a raw <code class="inline">package.json</code>, DepCheck inspects its <code class="inline">scripts</code> block and flags <code class="inline">preinstall</code>/<code class="inline">install</code>/<code class="inline">postinstall</code> (and other lifecycle hooks) that run code automatically on install. Version specifiers so loose they’ll silently pull a brand-new (unvetted) release are surfaced the same way, as install-time risk.</li>
+      <li><strong>Git / URL / wildcard dependencies.</strong> Deps pointing at a raw git URL, a tarball, or <code class="inline">"*"</code> bypass the registry’s integrity and versioning guarantees and are flagged for review.</li>
+      <li><strong>Pinning &amp; lockfile hygiene.</strong> Unpinned ranges on sensitive packages, or a manifest with no lockfile discipline, are noted as reproducibility/supply-chain hygiene findings.</li>
+    </ul>
+
+    <h2 id="table">Check → what it flags → severity</h2>
+    <p>Severity reflects how dangerous a finding typically is. For vulnerabilities, DepCheck inherits the advisory’s own rating; for the heuristics, the defaults below apply. Treat these as representative, not exhaustive.</p>
+    <div class="tbl-wrap">
+      <table class="detect">
+        <thead>
+          <tr><th scope="col">Check</th><th scope="col">What it flags</th><th scope="col">Severity</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>OSV vulnerability (critical/high advisory)</td><td>Your version is in the affected range of a serious published advisory (RCE, prototype pollution, auth bypass)</td><td><span class="sev fail">Critical</span></td></tr>
+          <tr><td>OSV vulnerability (moderate advisory)</td><td>Your version matches a lower-impact advisory (DoS, ReDoS, info leak)</td><td><span class="sev high">High</span></td></tr>
+          <tr><td>Possible typosquat</td><td>Name is 1–2 edits from a popular package but isn’t it (a one-character match is treated as the most urgent)</td><td><span class="sev fail">Critical</span> / <span class="sev high">High</span></td></tr>
+          <tr><td>Install / lifecycle script</td><td>Dependency runs code at install time (<code>postinstall</code> and friends)</td><td><span class="sev warn">Medium</span></td></tr>
+          <tr><td>Git / URL / tarball dependency</td><td>Source bypasses the registry’s integrity &amp; versioning</td><td><span class="sev warn">Medium</span></td></tr>
+          <tr><td>Abandoned / stale package</td><td>No registry release in a long time on a depended-upon package</td><td><span class="sev warn">Medium</span></td></tr>
+          <tr><td>Risky / unexpected license</td><td>Copyleft, commercial, or missing license</td><td><span class="sev warn">Medium</span></td></tr>
+          <tr><td>Wildcard / unpinned range</td><td><code>"*"</code>, <code>latest</code>, or a loose range that pulls unvetted releases at install time</td><td><span class="sev high">High</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="fine" style="color:var(--muted-2)">The exact rule set and the popular-package list evolve; treat this table as representative, not exhaustive. Severities are defaults and reflect typical risk, not your specific architecture.</p>
+
+    <h2 id="disclaimer">This is heuristic detection — not a full audit</h2>
+    <div class="callout warn-callout">
+      <strong>Important:</strong> DepCheck is a fast heuristic scanner, <strong>not a security guarantee, certification, or audit.</strong> A clean scan is not a guarantee. A clean result does not mean your dependency tree is safe, and a flagged result does not always mean a real problem.
+    </div>
+    <p>Like every heuristic scanner, DepCheck can produce both kinds of error:</p>
+    <ul>
+      <li><strong>False negatives.</strong> A brand-new vulnerability not yet in OSV, malware hiding under a name nowhere near a popular one, or a deeply nested transitive dependency you didn’t paste can all slip past unflagged.</li>
+      <li><strong>False positives.</strong> A close-but-legitimate package name, an intentionally pinned old version, or a license that’s perfectly fine for your use can be surfaced when there’s nothing actually wrong.</li>
+    </ul>
+    <p>DepCheck looks at the dependency coordinates you give it — not your full installed tree, your build pipeline, your runtime config, or your threat model. Use it as a quick first pass before you ship, alongside <code class="inline">npm audit</code>, a lockfile, and a real review. If you need genuine assurance, <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">talk to Copper Bay Labs</a>.</p>
+
+    <h2 id="risky">I found a risky dep — now what?</h2>
+    <p>Don’t panic, and don’t blindly delete it. Work the finding in order:</p>
+    <ol class="steps">
+      <li><strong>For a known vulnerability: upgrade to the patched version.</strong> Bump to the first fixed release DepCheck names (or run <code class="inline">npm audit fix</code>), then re-test. If no fix exists yet, check whether you actually call the vulnerable code path and consider an override or an alternative package.</li>
+      <li><strong>For a possible typosquat: confirm you installed the right package.</strong> Compare the name against the popular package character-by-character, check the npm page’s weekly downloads and repository link, and if it’s the wrong one, remove it and reinstall the correct name immediately — assume the typosquat ran malicious install code.</li>
+      <li><strong>For an abandoned package: find a maintained alternative.</strong> An unmaintained dependency won’t get security fixes. Look for an actively released replacement, or vendor/fork it if you must keep it.</li>
+      <li><strong>For an install script or git/URL dep: review what it does.</strong> Read the lifecycle script and the source before trusting it; pin it to an exact, audited version and prefer a registry release over a raw URL.</li>
+      <li><strong>For a license surprise: resolve it before you ship.</strong> Swap to a permissively licensed alternative, or confirm with whoever owns licensing that the terms are acceptable for your product.</li>
+      <li><strong>Then pin and lock.</strong> Commit a lockfile, pin sensitive dependencies to exact versions, and re-scan so your fix is reflected. Reproducible installs are what stop the next surprise.</li>
+    </ol>
+    <div class="callout">
+      <strong>Order matters.</strong> Patch the known-exploitable vulnerabilities first — those are the ones already being scanned for in the wild. Hygiene findings (pinning, licenses, stale packages) are important, but a live CVE in a deployed dependency is the open door.
+    </div>
+
+    <h2 id="suite">Part of the Copper Bay Labs ship-safety suite</h2>
+    <p>DepCheck is one of four free, client-side tools that each answer a different "will this ship safely?" question for vibe-coded and indie apps. They’re siblings — use them together before you launch.</p>
+    <div class="suite">
+      <a class="suite-card" href="https://dukotah.github.io/shipsafe/" target="_blank" rel="noopener noreferrer">
+        <p class="suite-name">ShipSafe</p>
+        <p class="suite-q">Will you get <strong>sued</strong>? ADA &amp; privacy compliance checks before launch.</p>
+      </a>
+      <a class="suite-card" href="https://dukotah.github.io/leakcheck/" target="_blank" rel="noopener noreferrer">
+        <p class="suite-name">LeakCheck</p>
+        <p class="suite-q">Did you leak a <strong>secret</strong> in your code? API keys &amp; tokens, by severity.</p>
+      </a>
+      <a class="suite-card" href="https://dukotah.github.io/exposurecheck/" target="_blank" rel="noopener noreferrer">
+        <p class="suite-name">ExposureCheck</p>
+        <p class="suite-q">Is your <strong>live site</strong> leaking? Exposed files, headers &amp; endpoints.</p>
+      </a>
+      <a class="suite-card current" href="./">
+        <p class="suite-name">DepCheck <span class="tag">You’re here</span></p>
+        <p class="suite-q">Are your <strong>dependencies</strong> risky? Vulns, typosquats, licenses.</p>
+      </a>
+    </div>
+
+    <h2 id="roadmap">On the roadmap</h2>
+    <div class="roadmap-note">
+      <p style="margin:0"><strong>Pre-commit &amp; CI dependency gate.</strong> The best place to catch a risky dependency is before it lands in your lockfile. We’re packaging DepCheck’s checks into a drop-in step for pre-commit hooks and CI pipelines, so the same OSV, typosquat, and hygiene checks that run here can block dangerous deps at the door of your repo — automatically, on every install. Stay tuned.</p>
+    </div>
+
+    <p style="margin-top:30px"><a class="btn primary" href="./">Scan your dependencies now</a></p>
+  </div>
+</article>
+</main>
+
+<footer class="footer" role="contentinfo">
+  <div class="wrap foot">
+    <div>
+      <a class="brand small" href="./" aria-label="DepCheck — homepage">
+        <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+          <path d="M10 16 30 26 30 48 10 38 Z" fill="#cbd2da"/>
+          <path d="M50 16 30 26 30 48 50 38 Z" fill="#aeb6c0"/>
+          <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+          <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="wordmark">DepCheck</span>
+      </a>
+      <p class="fine">Heuristic detection, not a security guarantee.</p>
+    </div>
+    <nav class="foot-nav" aria-label="Footer navigation">
+      <a href="about.html">How it works</a>
+      <a href="https://dukotah.github.io/shipsafe/" target="_blank" rel="noopener noreferrer">ShipSafe</a>
+      <a href="https://dukotah.github.io/leakcheck/" target="_blank" rel="noopener noreferrer">LeakCheck</a>
+      <a href="https://dukotah.github.io/exposurecheck/" target="_blank" rel="noopener noreferrer">ExposureCheck</a>
+      <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Secure my project &rarr;</a>
+    </nav>
+  </div>
+  <div class="wrap">
+    <p class="madeby">A <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Copper Bay Labs</a> product.</p>
+  </div>
+</footer>
+</body>
+</html>

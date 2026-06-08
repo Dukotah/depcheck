@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DepCheck — find risky npm dependencies before you ship</title>
+<meta name="description" content="Paste your package.json and instantly see which npm dependencies are vulnerable, abandoned, typosquatted, or copyleft-licensed, flagged by severity. Your code stays in your browser. Free, no signup.">
+<link rel="canonical" href="https://dukotah.github.io/depcheck/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DepCheck">
+<meta property="og:title" content="DepCheck — find risky npm dependencies">
+<meta property="og:description" content="Paste package.json and see vulnerable, abandoned, typosquatted, or risky-license dependencies flagged by severity. Only names + versions are looked up — your code stays with you.">
+<meta property="og:url" content="https://dukotah.github.io/depcheck/">
+<meta property="og:image" content="https://dukotah.github.io/depcheck/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#faf8f4">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebApplication","name":"DepCheck","applicationCategory":"DeveloperApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Free dependency risk scanner that flags vulnerable, abandoned, typosquatted, and risky-license npm packages from your package.json. Only package names and versions are looked up against public registries.","publisher":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"}}
+</script>
+<link rel="stylesheet" href="styles.css?v=1">
+</head>
+<body>
+<a class="skip" href="#main">Skip to main content</a>
+
+<header class="masthead" role="banner">
+  <div class="wrap hdr-bar">
+    <a class="brand" href="./" aria-label="DepCheck — go to homepage">
+      <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+        <path d="M10 16 30 26 30 48 10 38 Z" fill="#14181f"/>
+        <path d="M50 16 30 26 30 48 50 38 Z" fill="#1d222b"/>
+        <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+        <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="wordmark">DepCheck</span>
+    </a>
+    <nav class="nav" aria-label="Primary navigation">
+      <a href="about.html">How it works</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">Dependency risk scanner</p>
+      <h1>Are your npm dependencies a liability?</h1>
+      <p class="lede">Vibe-coded apps <code>npm install</code> dozens of packages <strong>blind</strong> — any one could be vulnerable, abandoned, typosquatted, or copyleft-licensed in a way that puts your project at risk. Paste your <code>package.json</code> below and find out <strong>before you ship</strong>.</p>
+
+      <form id="scan-form" class="scanner" novalidate>
+        <label class="code-label" for="manifest">Your <code>package.json</code></label>
+        <textarea id="manifest" name="manifest" class="code-input" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" wrap="off" placeholder="Paste your package.json here&hellip;" aria-describedby="trust-line"></textarea>
+
+        <div class="scan-actions">
+          <button type="submit" id="scan-btn" class="btn primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            Scan dependencies
+          </button>
+          <button type="button" id="example-btn" class="btn">Try an example</button>
+          <button type="button" id="clear-btn" class="btn ghost">Clear</button>
+        </div>
+
+        <p class="trust-badge" id="trust-line">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          <span><strong>Runs in your browser.</strong> We only look up package names + versions against public registries — your code stays with you.</span>
+        </p>
+      </form>
+    </div>
+  </section>
+
+  <div id="scan-status" class="sr-only" role="status" aria-live="polite"></div>
+
+  <section id="results" class="results" hidden tabindex="-1" aria-label="Scan results">
+    <!-- app.js fills this and injects the "Copy report" #copy-btn into the results head -->
+  </section>
+
+  <section class="detect">
+    <div class="wrap">
+      <p class="eyebrow">What we check</p>
+      <h2 class="detect-title">Six ways a dependency bites you</h2>
+      <p class="detect-sub">Every package in your manifest is checked against public registries for the risks that sink indie apps — no installs, no build, just names and versions.</p>
+      <ul class="detect-grid">
+        <li class="feature"><span class="feat-icon" aria-hidden="true">CVE</span><div><h3>Known vulnerabilities</h3><p>Versions with published advisories, via the OSV database.</p></div></li>
+        <li class="feature"><span class="feat-icon" aria-hidden="true">typo</span><div><h3>Typosquatted names</h3><p>Packages a character away from a popular one — a classic malware vector.</p></div></li>
+        <li class="feature"><span class="feat-icon" aria-hidden="true">zzz</span><div><h3>Abandoned / unmaintained</h3><p>No releases in years, deprecated, or signs of an orphaned project.</p></div></li>
+        <li class="feature"><span class="feat-icon" aria-hidden="true">lic</span><div><h3>Risky licenses</h3><p>Copyleft (GPL/AGPL) or unknown licenses that can infect or expose your code.</p></div></li>
+        <li class="feature"><span class="feat-icon" aria-hidden="true">^~</span><div><h3>Loose version ranges</h3><p>Wide <code>^</code> / <code>*</code> ranges and <code>latest</code> that pull in unreviewed updates.</p></div></li>
+        <li class="feature"><span class="feat-icon" aria-hidden="true">bloat</span><div><h3>Dependency bloat</h3><p>Heavy or redundant packages that balloon your install and attack surface.</p></div></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="steps">
+    <div class="wrap">
+      <p class="eyebrow">How it works</p>
+      <h2 class="steps-title">Three steps, no install</h2>
+      <ol class="step-grid">
+        <li class="step">
+          <span class="step-num" aria-hidden="true">1</span>
+          <h3>Paste</h3>
+          <p>Drop in the <code>package.json</code> you're about to ship — dependencies and devDependencies.</p>
+        </li>
+        <li class="step">
+          <span class="step-num" aria-hidden="true">2</span>
+          <h3>Names + versions looked up</h3>
+          <p>Only package names and versions are checked against public registries like OSV and npm. Your code never leaves your machine.</p>
+        </li>
+        <li class="step">
+          <span class="step-num" aria-hidden="true">3</span>
+          <h3>Risks ranked, with fixes</h3>
+          <p>Each finding is shown by severity with what's wrong and the upgrade or replacement to make.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="suite">
+    <div class="wrap">
+      <p class="eyebrow">The ship-safety suite</p>
+      <h2 class="suite-title">DepCheck is one of four checks before you ship</h2>
+      <p class="suite-sub">Free, browser-based safety checks for vibe-coded and indie apps, from <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Copper Bay Labs</a>.</p>
+      <ul class="suite-grid">
+        <li class="feature">
+          <span class="feat-icon" aria-hidden="true">sue</span>
+          <div>
+            <h3><a href="https://dukotah.github.io/shipsafe/" target="_blank" rel="noopener noreferrer">ShipSafe &rarr;</a></h3>
+            <p>Will you get <strong>sued</strong>? Checks your site for ADA accessibility and privacy-law exposure.</p>
+          </div>
+        </li>
+        <li class="feature">
+          <span class="feat-icon" aria-hidden="true">key</span>
+          <div>
+            <h3><a href="https://dukotah.github.io/leakcheck/" target="_blank" rel="noopener noreferrer">LeakCheck &rarr;</a></h3>
+            <p>Did you leak a secret in your <strong>code</strong>? Finds exposed API keys and tokens before you commit.</p>
+          </div>
+        </li>
+        <li class="feature">
+          <span class="feat-icon" aria-hidden="true">live</span>
+          <div>
+            <h3><a href="https://dukotah.github.io/exposurecheck/" target="_blank" rel="noopener noreferrer">ExposureCheck &rarr;</a></h3>
+            <p>Is your <strong>live site</strong> leaking? Scans a running URL for exposed files and headers.</p>
+          </div>
+        </li>
+        <li class="feature">
+          <span class="feat-icon" aria-hidden="true">dep</span>
+          <div>
+            <h3>DepCheck</h3>
+            <p>Are your <strong>dependencies</strong> risky? You're here — paste a <code>package.json</code> above.</p>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="faq">
+    <div class="wrap narrow">
+      <p class="eyebrow">FAQ</p>
+      <h2 class="faq-title">Questions, answered</h2>
+
+      <details>
+        <summary>Do you upload my code?</summary>
+        <p>No. DepCheck reads your <code>package.json</code> <strong>in your browser</strong> and the source code of your app never leaves this tab. The only thing that goes out is the list of <strong>package names and versions</strong>, which are looked up against public registries (OSV for vulnerabilities, npm for metadata) — exactly the same public data anyone can query. There's no signup and no database of your project.</p>
+      </details>
+
+      <details>
+        <summary>Is a clean scan a guarantee?</summary>
+        <p>No. A clean result means we found no <em>known</em> issues for the versions you pasted — it can't catch a vulnerability that hasn't been disclosed yet, a malicious package that isn't flagged, or risk introduced by your lockfile's transitive dependencies. Treat DepCheck as a fast first line of defense, and pair it with <code>npm audit</code>, a lockfile review, and good update hygiene.</p>
+      </details>
+
+      <details>
+        <summary>What's a typosquat?</summary>
+        <p>A <strong>typosquat</strong> is a malicious package published under a name that's a character or two away from a popular one — <code>cross-env</code> vs <code>crossenv</code>, or <code>lodash</code> vs <code>lodahs</code>. The goal is that a tired developer fat-fingers the install and pulls in code that steals secrets or runs a payload. DepCheck flags dependency names that look suspiciously close to well-known packages so you can double-check before you trust them.</p>
+      </details>
+
+      <details>
+        <summary>Found a vuln — now what?</summary>
+        <p><strong>Upgrade to the fixed version.</strong> Most advisories list a patched release — bump the dependency to it (or run <code>npm audit fix</code>) and re-test. If the package is abandoned, unmaintained, or has no fix available, <strong>replace it</strong> with a maintained alternative, or remove it if you're not really using it. For a transitive dependency you don't control directly, upgrade the parent package or use an <code>overrides</code> entry to force the safe version.</p>
+      </details>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer" role="contentinfo">
+  <div class="wrap foot">
+    <div>
+      <a class="brand small" href="./" aria-label="DepCheck — homepage">
+        <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+          <path d="M10 16 30 26 30 48 10 38 Z" fill="#cbd2da"/>
+          <path d="M50 16 30 26 30 48 50 38 Z" fill="#aeb6c0"/>
+          <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+          <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="wordmark">DepCheck</span>
+      </a>
+      <p class="fine">Heuristic dependency checks, not a security guarantee.</p>
+    </div>
+    <nav class="foot-nav" aria-label="Footer navigation">
+      <a href="about.html">How it works</a>
+      <a href="https://dukotah.github.io/shipsafe/" target="_blank" rel="noopener noreferrer">ShipSafe</a>
+      <a href="https://dukotah.github.io/leakcheck/" target="_blank" rel="noopener noreferrer">LeakCheck</a>
+      <a href="https://dukotah.github.io/exposurecheck/" target="_blank" rel="noopener noreferrer">ExposureCheck</a>
+      <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Secure my project &rarr;</a>
+    </nav>
+  </div>
+  <div class="wrap">
+    <p class="madeby">A <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Copper Bay Labs</a> product.</p>
+  </div>
+</footer>
+
+<script src="app.js?v=1"></script>
+</body>
+</html>
