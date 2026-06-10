@@ -856,6 +856,45 @@
     return out;
   }
 
+  /* Contextual lead capture: when dependency risks are found, offer a pre-filled
+   * "get these fixed" quote to Copper Bay Tech with the COUNTS and risk TYPES
+   * only — never the pasted manifest contents. */
+  function buildFixCta(items, counts, total, meta) {
+    var seenType = Object.create(null), types = [];
+    for (var i = 0; i < items.length; i++) {
+      var nm = items[i].name;
+      if (nm && !seenType[nm]) { seenType[nm] = true; types.push(nm); }
+    }
+    var sevParts = [];
+    for (var s = 0; s < SEVERITIES.length; s++) {
+      if (counts[SEVERITIES[s]]) sevParts.push(counts[SEVERITIES[s]] + " " + SEV_LABEL[SEVERITIES[s]].toLowerCase());
+    }
+    var typeList = types.slice(0, 8).map(function (t) { return "- " + t; }).join("\n");
+    var declared = meta && meta.declaredCount;
+    var subject = "Fix quote — DepCheck flagged " + total +
+      (total === 1 ? " dependency risk" : " dependency risks");
+    var body = "Hi Copper Bay,\n\nI ran DepCheck and it flagged " + total +
+      (total === 1 ? " risk" : " risks") +
+      (declared ? " across " + declared + " " + (declared === 1 ? "dependency" : "dependencies") : "") +
+      (sevParts.length ? " (" + sevParts.join(", ") + ")" : "") +
+      (typeList ? ", including:\n" + typeList : ".") +
+      "\n\nI'd like a no-obligation quote to remediate and harden my dependencies. Thanks!";
+    var href = "mailto:contact@copperbaytech.com?subject=" + encodeURIComponent(subject) +
+      "&body=" + encodeURIComponent(body);
+    var cta = el("div", "fix-cta");
+    cta.setAttribute("style", "display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:18px 0 6px;padding:16px 18px;border:1px solid var(--copper,#bf6b3c);background:var(--copper-tint,#f6ebe2);border-radius:12px");
+    var copy = el("div"); copy.setAttribute("style", "max-width:48ch");
+    var strong = el("strong", null, "Want these fixed for you?");
+    strong.setAttribute("style", "display:block;margin-bottom:3px");
+    var sub = el("span", null, "Copper Bay Tech patches vulnerable, abandoned, and risky-license dependencies. Get a no-obligation quote — your scan summary is pre-filled (your manifest is never sent).");
+    sub.setAttribute("style", "color:var(--muted,#665f54);font-size:14px");
+    copy.appendChild(strong); copy.appendChild(sub);
+    var btn = el("a", "btn primary", "Get a free fix quote →");
+    btn.setAttribute("href", href); btn.setAttribute("style", "white-space:nowrap");
+    cta.appendChild(copy); cta.appendChild(btn);
+    return cta;
+  }
+
   function render(findings, meta, netState, results, liveRegion, onCopy) {
     results.textContent = "";
 
@@ -942,6 +981,8 @@
       for (var c = 0; c < group.length; c++) wrap.appendChild(buildCard(group[c]));
       results.appendChild(wrap);
     }
+
+    results.appendChild(buildFixCta(findings, counts, total, meta));
 
     results.hidden = false;
     announce(liveRegion, "Scan complete. " + total + (total === 1 ? " risk found: " : " risks found: ") + summaryPhrase(counts) + ".");
