@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Fix npm audit Vulnerabilities — Step-by-Step Remediation Guide</title>
+<meta name="description" content="npm audit flagged vulnerabilities in your project. This guide covers every path to fixing them: npm audit fix, manual upgrades, transitive dependency overrides, and what to do when there's no patch yet.">
+<link rel="canonical" href="https://labs.copperbaytech.com/depcheck/guides/fix-npm-audit-vulnerabilities.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="DepCheck">
+<meta property="og:title" content="How to Fix npm audit Vulnerabilities — Step-by-Step Remediation Guide">
+<meta property="og:description" content="From npm audit fix to transitive dependency overrides to knowing when to replace a package entirely — the complete remediation playbook.">
+<meta property="og:url" content="https://labs.copperbaytech.com/depcheck/guides/fix-npm-audit-vulnerabilities.html">
+<meta property="og:image" content="https://labs.copperbaytech.com/depcheck/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#faf8f4">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle","headline":"How to Fix npm audit Vulnerabilities — Step-by-Step Remediation Guide","description":"Complete remediation playbook for npm audit findings: safe auto-fix, manual targeted upgrades, transitive dependency overrides with npm overrides, assessing vulnerabilities with no fix, and prevention in CI.","author":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"},"publisher":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"},"datePublished":"2026-06-15","dateModified":"2026-06-15","mainEntityOfPage":"https://labs.copperbaytech.com/depcheck/guides/fix-npm-audit-vulnerabilities.html","mainEntity":{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Why does npm audit fix not fix all vulnerabilities?","acceptedAnswer":{"@type":"Answer","text":"npm audit fix only applies upgrades that are compatible with your existing semver ranges (e.g., if you have ^1.2.0, it will upgrade within the 1.x line but won't jump to 2.0.0). Vulnerabilities that require a major version bump, or that live in transitive dependencies that the parent package hasn't upgraded yet, are left unfixed. Use manual upgrades or the overrides field for those cases."}},{"@type":"Question","name":"Is npm audit fix --force safe to run?","acceptedAnswer":{"@type":"Answer","text":"Not without caution. --force allows npm to upgrade packages to major versions outside your stated ranges, which can introduce breaking API changes. Always run npm audit fix --force --dry-run first to see exactly what it intends to change, then run your full test suite after applying any force upgrade."}},{"@type":"Question","name":"What is a transitive vulnerability in npm audit?","acceptedAnswer":{"@type":"Answer","text":"A transitive vulnerability is in a package you didn't install directly — it's a dependency of one of your dependencies. You can't fix it by changing your own code; you have to either upgrade the parent package to a version that depends on the fixed transitive version, or force a specific version using the overrides field in package.json (npm v8.3+)."}},{"@type":"Question","name":"Should I fix low and moderate severity npm audit findings?","acceptedAnswer":{"@type":"Answer","text":"It depends on reachability. A moderate-severity vulnerability in a package that handles user-supplied input you actually accept warrants immediate attention. The same finding in a dev-only build tool that never runs in production can often wait for the next scheduled dependency update. Read the advisory to understand whether the attack requires specific conditions your app actually meets."}},{"@type":"Question","name":"What do I do if npm audit shows a vulnerability with no fix available?","acceptedAnswer":{"@type":"Answer","text":"First, check the package's GitHub issues for a timeline or a patched fork. Then assess real-world exploitability: does the vulnerable code path run in your app with user-controlled input? If the package is abandoned, look for a maintained alternative. If you accept the risk, document it explicitly so the decision is intentional rather than overlooked."}},{"@type":"Question","name":"How do I stop npm audit from blocking my CI on low-severity findings?","acceptedAnswer":{"@type":"Answer","text":"Pass the --audit-level flag to set the minimum severity that causes a non-zero exit code. For example, npm audit --audit-level=high exits with an error only for high and critical vulnerabilities, letting low and moderate findings pass CI without blocking the build."}}]}}
+</script>
+<link rel="stylesheet" href="../styles.css?v=1">
+<style>
+  .doc .lede{font-size:clamp(17px,2.3vw,20px);color:var(--muted)}
+  .doc h2{scroll-margin-top:80px}
+  .doc h3{font-family:"Fraunces",Georgia,serif;font-weight:600;font-size:19px;margin:22px 0 6px;letter-spacing:-.01em}
+  .toc{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 6px;padding:0;list-style:none}
+  .toc a{display:inline-block;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:14px;font-weight:600;color:var(--muted)}
+  .toc a:hover{border-color:var(--bay);color:var(--ink);text-decoration:none}
+  .callout.warn-callout{background:var(--fail-bg);border-left-color:var(--fail);color:#5e2019}
+  .callout.tip-callout{background:var(--pass-bg);border-left-color:var(--pass);color:#1b4d30}
+  .steps{margin:18px 0;padding-left:0;list-style:none;counter-reset:step}
+  .steps>li{position:relative;padding:4px 0 20px 46px;counter-increment:step}
+  .steps>li::before{content:counter(step);position:absolute;left:0;top:2px;width:30px;height:30px;border-radius:50%;background:var(--copper);color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center;font-family:"Fraunces",serif}
+  .steps>li strong{display:block;margin-bottom:4px}
+  .doc code.inline{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background:var(--line-2);padding:2px 6px;border-radius:5px}
+  pre{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;margin:12px 0}
+  pre code{background:none;padding:0;font-size:inherit}
+  .severity-table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}
+  .severity-table th{text-align:left;padding:10px 12px;background:var(--surface);border-bottom:2px solid var(--line);font-weight:600}
+  .severity-table td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  .severity-table tr:last-child td{border-bottom:none}
+  .sev-badge{display:inline-block;padding:2px 8px;border-radius:5px;font-weight:700;font-size:12px;letter-spacing:.04em;text-transform:uppercase}
+  .sev-critical{background:#fde8e4;color:#8b1a0a}
+  .sev-high{background:#fdf0e4;color:#7a3b10}
+  .sev-moderate{background:#fdf8e4;color:#6b580a}
+  .sev-low{background:#f0f4f8;color:#3a4a5a}
+  .suite{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:18px 0 6px}
+  .suite a{display:block;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);transition:box-shadow .15s,transform .15s,border-color .15s}
+  .suite a:hover{text-decoration:none;box-shadow:var(--shadow-lift);transform:translateY(-2px);border-color:var(--line-2)}
+  .suite .s-name{font-family:"Fraunces",serif;font-weight:600;font-size:17px;color:var(--ink);display:block;margin:0 0 4px}
+  .suite p{color:var(--muted);font-size:14px;margin:0}
+  .suite .s-tag{display:inline-block;margin-bottom:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--bay);background:var(--bay-tint,#e8f4f6);border:1px solid #cfe1e3;border-radius:6px;padding:2px 8px}
+  .faq-section{margin:18px 0}
+  .faq-section details{border-bottom:1px solid var(--line);padding:14px 0}
+  .faq-section details:first-child{border-top:1px solid var(--line)}
+  .faq-section summary{font-weight:600;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .faq-section summary::-webkit-details-marker{display:none}
+  .faq-section summary::after{content:"+";font-size:20px;color:var(--muted);flex-shrink:0}
+  .faq-section details[open] summary::after{content:"\2212"}
+  .faq-section details p,.faq-section details ul{margin:12px 0 4px;color:var(--muted)}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to main content</a>
+
+<header class="masthead" role="banner">
+  <div class="wrap hdr-bar">
+    <a class="brand" href="../" aria-label="DepCheck — go to homepage">
+      <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+        <path d="M10 16 30 26 30 48 10 38 Z" fill="#14181f"/>
+        <path d="M50 16 30 26 30 48 50 38 Z" fill="#1d222b"/>
+        <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+        <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="wordmark">DepCheck</span>
+    </a>
+    <nav class="nav" aria-label="Primary navigation">
+      <a href="../about.html">How it works</a>
+      <a href="fix-npm-audit-vulnerabilities.html">Fix guides</a>
+      <a href="../">Scan your deps</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<article class="doc">
+  <div class="wrap narrow">
+    <p class="eyebrow" style="text-align:left">Remediation guide</p>
+    <h1>How to fix npm audit vulnerabilities</h1>
+    <p class="lede">You ran <code class="inline">npm audit</code> and now you're looking at a wall of findings — critical, high, moderate — spread across packages you installed and packages you've never heard of. This guide walks through every remediation path, in the order you should try them.</p>
+
+    <div class="callout warn-callout">
+      <strong>Don't reach for <code style="color:inherit">--force</code> yet.</strong> <code style="color:inherit">npm audit fix --force</code> can silently upgrade packages across major versions and break your app. Read through the steps below first — most vulnerabilities have a safer fix.
+    </div>
+
+    <ul class="toc" aria-label="On this page">
+      <li><a href="#reading-output">Reading the output</a></li>
+      <li><a href="#audit-fix">Step 1: npm audit fix</a></li>
+      <li><a href="#manual-upgrades">Step 2: Manual targeted upgrades</a></li>
+      <li><a href="#transitive">Step 3: Transitive dependency overrides</a></li>
+      <li><a href="#no-fix">Step 4: No fix available yet</a></li>
+      <li><a href="#replace">Step 5: Replace abandoned packages</a></li>
+      <li><a href="#prevention">Prevention in CI</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+
+    <h2 id="reading-output">Reading the npm audit output</h2>
+    <p>Before fixing anything, understand what the report is telling you. Each advisory contains: the severity, the package name, the vulnerable version range, the fixed version (if one exists), and whether the package is a <em>direct</em> dependency (one you installed) or a <em>transitive</em> dependency (installed by one of your packages). This distinction determines which fix applies.</p>
+
+    <table class="severity-table">
+      <thead><tr><th>Severity</th><th>What it typically means</th><th>Typical action</th></tr></thead>
+      <tbody>
+        <tr><td><span class="sev-badge sev-critical">Critical</span></td><td>Remote code execution, authentication bypass, or arbitrary file access with no special conditions</td><td>Fix before the next deploy</td></tr>
+        <tr><td><span class="sev-badge sev-high">High</span></td><td>Significant data exposure, privilege escalation, or DoS under realistic conditions</td><td>Fix within a day or two</td></tr>
+        <tr><td><span class="sev-badge sev-moderate">Moderate</span></td><td>Exploitable but usually requires specific conditions (e.g., attacker-controlled input you may not accept)</td><td>Fix in next scheduled update, sooner if reachable</td></tr>
+        <tr><td><span class="sev-badge sev-low">Low</span></td><td>Minimal real-world impact; theoretical or requires extensive preconditions</td><td>Batch with routine updates</td></tr>
+      </tbody>
+    </table>
+
+    <p>The JSON report (<code class="inline">npm audit --json</code>) gives you the full advisory text and the dependency chain for each finding — useful when you need to trace a transitive vulnerability back to which of your direct dependencies is pulling it in.</p>
+
+    <h2 id="audit-fix">Step 1: Run npm audit fix (the safe path)</h2>
+    <p>Start here. <code class="inline">npm audit fix</code> upgrades vulnerable packages within your existing semver constraints — for example, if you depend on <code class="inline">"lodash": "^4.0.0"</code> and version 4.17.21 contains a fix, it upgrades to that without touching your declared range or breaking your API contract.</p>
+    <pre><code># Run the safe auto-fix
+npm audit fix
+
+# Then re-check — not everything will be fixed
+npm audit
+
+# Commit your updated package-lock.json
+git add package-lock.json
+git commit -m "chore: npm audit fix"</code></pre>
+    <p>After running, commit the updated <code class="inline">package-lock.json</code>. Your code should be tested and redeployed — even patch upgrades can occasionally introduce regressions.</p>
+    <p>If vulnerabilities remain after this step (they usually will), continue below. The remaining cases require more targeted intervention.</p>
+
+    <h2 id="manual-upgrades">Step 2: Manual targeted upgrades for direct dependencies</h2>
+    <p>For vulnerabilities that <code class="inline">npm audit fix</code> didn't resolve because they require a version jump outside your declared range, upgrade the specific package directly. The audit output shows the fixed version — install it explicitly:</p>
+    <pre><code># Install a specific fixed version
+npm install package-name@4.2.1
+
+# Or upgrade to latest stable
+npm install package-name@latest
+
+# Check again
+npm audit</code></pre>
+    <p>After installing, check that your app still works. The jump to a new major version may have changed APIs. Review the package's changelog between your old version and the new one to understand what might have changed.</p>
+    <div class="callout tip-callout">
+      <strong>When is <code style="color:inherit">npm audit fix --force</code> appropriate?</strong> Only after you understand exactly what it will change. Run <code class="inline">npm audit fix --force --dry-run</code> first — it prints what would happen without making any changes. If the proposed upgrades look reasonable and you have test coverage, then apply it. Immediately run <code class="inline">npm test</code> and verify your app manually.
+    </div>
+
+    <h2 id="transitive">Step 3: Fix transitive dependency vulnerabilities with overrides</h2>
+    <p>Transitive vulnerabilities are the most frustrating case. The vulnerable package isn't in your <code class="inline">package.json</code> — it's a dependency of a dependency. <code class="inline">npm audit fix</code> can't resolve these if the parent package hasn't released an upgrade yet.</p>
+    <p>You have two main options:</p>
+
+    <h3>Option A: Upgrade the parent package</h3>
+    <p>First, identify which of your direct dependencies is pulling in the vulnerable transitive package. The audit report's dependency chain shows this. Upgrade that parent to its latest version — it may have already updated its own dependency tree to a safe version, even if there's no explicit advisory about it.</p>
+    <pre><code># Find the dependency chain (JSON gives the full path)
+npm audit --json | npx node -e "
+  const d=require('fs').readFileSync('/dev/stdin','utf8');
+  const a=JSON.parse(d);
+  Object.values(a.vulnerabilities||{}).forEach(v=>
+    console.log(v.name, v.via?.map?.(x=>typeof x==='string'?x:x.name)));
+"
+
+# Upgrade the parent package
+npm install parent-package@latest</code></pre>
+
+    <h3>Option B: Force a specific version with overrides (npm v8.3+)</h3>
+    <p>If the parent package hasn't released a fix yet, you can force the entire dependency tree to use a specific (safe) version of the transitive package by adding an <code class="inline">overrides</code> field to your <code class="inline">package.json</code>:</p>
+    <pre><code>{
+  "dependencies": { ... },
+  "overrides": {
+    "vulnerable-transitive-package": "^2.1.4"
+  }
+}
+</code></pre>
+    <p>After adding the override, run <code class="inline">npm install</code> to regenerate the lockfile, then <code class="inline">npm audit</code> to confirm the finding is resolved.</p>
+    <div class="callout warn-callout">
+      <strong>Overrides can break the parent package.</strong> If the parent relies on behavior that changed between versions, forcing a different version can cause subtle runtime failures. Test thoroughly after applying overrides. If you're using Yarn, the equivalent is <code style="color:inherit">resolutions</code>; for pnpm, it's <code style="color:inherit">pnpm.overrides</code>.
+    </div>
+
+    <h2 id="no-fix">Step 4: Vulnerabilities with no fix available yet</h2>
+    <p>Some advisories are published before a patch exists. The advisory's "Patched in" field will be empty, or you'll see a notice that no fix is available. Here's what to do:</p>
+    <ul>
+      <li><strong>Check the package's GitHub issues.</strong> Maintainers often comment on the timeline for a fix. Sometimes a patched version is already in a PR waiting to be released.</li>
+      <li><strong>Assess real-world reachability.</strong> A regular-expression DoS vulnerability matters a lot if your app applies that regex to user-supplied input. It matters less if the regex only runs on your own hardcoded configuration. Read the advisory's description to understand what conditions an exploit requires.</li>
+      <li><strong>Check for a patched fork.</strong> Sometimes a community fork has already backported the fix. Use it via a GitHub dependency reference (<code class="inline">"package": "github:org/fork#commit-sha"</code>) if a fix is urgent.</li>
+      <li><strong>Document the accepted risk explicitly.</strong> If you decide to wait, add a comment in your <code class="inline">package.json</code> or a tracking issue. An unpatched vulnerability that was consciously accepted is very different from one that was overlooked.</li>
+    </ul>
+    <p>If the package is abandoned with no maintainer activity and no fix coming, the right path is replacement — see Step 5.</p>
+
+    <h2 id="replace">Step 5: Replace abandoned packages</h2>
+    <p>A package with an unpatched CVE and a dormant GitHub repo is a liability with no exit ramp via upgrade. The fix is to remove the dependency and replace it with a maintained alternative. Common examples:</p>
+    <ul>
+      <li>Request-related utilities (e.g., <code class="inline">request</code>, deprecated since 2020) → replaced by <code class="inline">node-fetch</code>, <code class="inline">undici</code>, or the native <code class="inline">fetch</code> in Node 18+</li>
+      <li>Old HTML parsing libs → replaced by <code class="inline">cheerio</code> (actively maintained) or <code class="inline">parse5</code></li>
+      <li>Crypto utilities with outdated algorithms → native <code class="inline">crypto</code> module where possible</li>
+    </ul>
+    <p><code class="inline">npm audit</code> tells you a package has a CVE but doesn't tell you it's unmaintained. That's a gap. Paste your <code class="inline">package.json</code> into <a href="../">DepCheck</a> to see which of your dependencies are abandoned, have no recent releases, or are flagged as deprecated — giving you the full picture beyond just known CVEs.</p>
+
+    <p style="margin:24px 0 8px"><a class="btn primary" href="../">Check your dependencies with DepCheck &rarr;</a></p>
+
+    <h2 id="prevention">Prevention: catch vulnerabilities before they reach production</h2>
+    <ul>
+      <li><strong>Run <code class="inline">npm audit</code> in CI.</strong> By default, <code class="inline">npm audit</code> exits with a non-zero code if any vulnerabilities are found. Use <code class="inline">npm audit --audit-level=high</code> to fail only on high and critical findings, letting low and moderate pass while you address them on a schedule.</li>
+      <li><strong>Commit your lockfile.</strong> <code class="inline">package-lock.json</code> pins exact transitive versions so that <code class="inline">npm install</code> on any machine produces the same tree. Without it, a fresh install might pull in a newer (or older, or compromised) transitive version.</li>
+      <li><strong>Schedule regular <code class="inline">npm outdated</code> reviews.</strong> Many vulnerabilities are fixed in patch or minor releases that are already compatible with your semver ranges — they just haven't been pulled in since your last install. A weekly or bi-weekly <code class="inline">npm outdated &amp;&amp; npm update</code> cycle keeps your lockfile current.</li>
+      <li><strong>Check for risky dep patterns beyond CVEs.</strong> <code class="inline">npm audit</code> only surfaces <em>published</em> advisories. It won't flag a package that was deprecated last month, a typosquatted name that resembles a popular utility, or a copyleft license that conflicts with your commercial use. <a href="../">DepCheck</a> covers those gaps.</li>
+      <li><strong>Limit your dependency footprint.</strong> Every added package is a new attack surface. Before installing a new package, ask whether it's really necessary — or whether a few lines of code would do the same job without the ongoing maintenance burden.</li>
+    </ul>
+
+    <h2 id="faq">Frequently asked questions</h2>
+    <div class="faq-section">
+      <details open>
+        <summary>Why does npm audit fix not fix all vulnerabilities?</summary>
+        <p><code class="inline">npm audit fix</code> only applies upgrades that are semver-compatible with your declared ranges. If the fix requires a major version bump (e.g., 1.x → 2.x), npm won't apply it automatically because that's outside the scope of a <code class="inline">^</code> constraint. Similarly, if the vulnerability is in a transitive package and the parent hasn't released an upgrade yet, there's nothing for npm to install. For those cases, use manual upgrades or <code class="inline">overrides</code>.</p>
+      </details>
+      <details>
+        <summary>Is npm audit fix --force safe to run?</summary>
+        <p>Only with caution. <code class="inline">--force</code> allows npm to upgrade packages beyond your semver constraints, including major version bumps that can introduce breaking API changes. Before using it, run <code class="inline">npm audit fix --force --dry-run</code> to preview the changes. After applying, run your test suite in full — at a minimum, verify the app starts and the critical paths work.</p>
+      </details>
+      <details>
+        <summary>What is a transitive vulnerability and why can't I just update it directly?</summary>
+        <p>A transitive (or indirect) dependency is a package installed by one of your dependencies — not something you added yourself. Because it's not in your <code class="inline">package.json</code>, running <code class="inline">npm install vulnerable-package@safe-version</code> won't work — npm won't treat it as your dependency. You either upgrade the parent package that pulls it in, or force a specific version using the <code class="inline">overrides</code> field.</p>
+      </details>
+      <details>
+        <summary>Should I fix low and moderate severity findings?</summary>
+        <p>It depends on whether the vulnerability is reachable in your app. A moderate-severity prototype pollution vulnerability matters if the library processes JSON from an untrusted source; it matters far less in a dev-only CLI tool that only runs locally. Read the advisory to understand the attack conditions. As a general rule: fix anything reachable by user input regardless of severity, and batch non-reachable low/moderate findings into routine updates.</p>
+      </details>
+      <details>
+        <summary>What do I do if there's no fix available?</summary>
+        <p>Check the package's GitHub issues for a patch timeline or a community fork with the fix backported. Assess whether your app actually exercises the vulnerable code path. If the package is abandoned, find a maintained replacement. If you decide to live with the risk temporarily, document that decision explicitly so it doesn't get lost. Don't just silence the warning with <code class="inline">npm audit --omit=optional</code> and move on.</p>
+      </details>
+      <details>
+        <summary>How do I stop npm audit from blocking CI on low-severity findings?</summary>
+        <p>Use the <code class="inline">--audit-level</code> flag: <code class="inline">npm audit --audit-level=high</code> exits non-zero only for high and critical vulnerabilities. Low and moderate findings will appear in the report output but won't fail the build. This lets you maintain CI hygiene while addressing lower-severity issues on a scheduled cadence.</p>
+      </details>
+    </div>
+
+    <h2 style="margin-top:48px">Also in the Copper Bay Labs ship-safety suite</h2>
+    <p>Vulnerable dependencies are one of several things to catch before you ship. These free tools cover the rest:</p>
+    <div class="suite">
+      <a href="../">
+        <span class="s-tag">Dependency risk</span>
+        <span class="s-name">DepCheck</span>
+        <p>Paste your <code class="inline">package.json</code> and see vulnerable, abandoned, typosquatted, and risky-license packages flagged by severity.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">Secret scanning</span>
+        <span class="s-name">LeakCheck</span>
+        <p>Paste code or a config file and see exposed API keys and secrets flagged before they reach the repo.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/exposurecheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">Post-deploy</span>
+        <span class="s-name">ExposureCheck</span>
+        <p>Scan your live URL for exposed <code class="inline">.env</code> files, <code class="inline">.git</code> directories, source maps, and bundled secrets.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/hardencheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">HTTP hardening</span>
+        <span class="s-name">HardenCheck</span>
+        <p>Check your security headers and Content Security Policy so your site isn't an exfiltration vector.</p>
+      </a>
+    </div>
+  </div>
+</article>
+</main>
+
+<footer class="footer" role="contentinfo">
+  <div class="wrap foot">
+    <div>
+      <a class="brand small" href="../" aria-label="DepCheck — homepage">
+        <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+          <path d="M10 16 30 26 30 48 10 38 Z" fill="#cbd2da"/>
+          <path d="M50 16 30 26 30 48 50 38 Z" fill="#aeb6c0"/>
+          <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+          <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="wordmark">DepCheck</span>
+      </a>
+      <p class="fine">Heuristic dependency checks, not a security guarantee.</p>
+    </div>
+    <nav class="foot-nav" aria-label="Footer navigation">
+      <a href="../about.html">How it works</a>
+      <a href="fix-npm-audit-vulnerabilities.html">Fix guides</a>
+      <a href="https://labs.copperbaytech.com/shipsafe/" target="_blank" rel="noopener noreferrer">ShipSafe</a>
+      <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">LeakCheck</a>
+      <a href="https://labs.copperbaytech.com/exposurecheck/" target="_blank" rel="noopener noreferrer">ExposureCheck</a>
+      <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Secure my project &rarr;</a>
+    </nav>
+  </div>
+  <div class="wrap">
+    <p class="madeby">A <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Copper Bay Labs</a> product.</p>
+  </div>
+</footer>
+</body>
+</html>
