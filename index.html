@@ -45,6 +45,7 @@
     <nav class="nav" aria-label="Primary navigation">
       <a href="about.html">How it works</a>
       <a href="guides/fix-npm-audit-vulnerabilities.html">Fix guides</a>
+      <a href="guides/audit-npm-packages-security.html">Audit guide</a>
     </nav>
   </div>
 </header>
@@ -174,7 +175,7 @@
 
       <details>
         <summary>Is a clean scan a guarantee?</summary>
-        <p>No. A clean result means we found no <em>known</em> issues for the versions you pasted — it can't catch a vulnerability that hasn't been disclosed yet, a malicious package that isn't flagged, or risk introduced by your lockfile's transitive dependencies. Treat DepCheck as a fast first line of defense, and pair it with <code>npm audit</code>, a lockfile review, and good update hygiene.</p>
+        <p>No. A clean result means we found no <em>known</em> issues for the versions you pasted — it can't catch a vulnerability that hasn't been disclosed yet, a malicious package that isn't flagged, or risk introduced by your lockfile's transitive dependencies. Treat DepCheck as a fast first line of defense, and pair it with <code>npm audit</code>, a lockfile review, and good update hygiene. See our <a href="guides/audit-npm-packages-security.html">full pre-deploy audit guide</a> for a step-by-step workflow covering CVEs, abandoned packages, license risk, and CI integration.</p>
       </details>
 
       <details>
@@ -220,7 +221,8 @@
     </div>
     <nav class="foot-nav" aria-label="Footer navigation">
       <a href="about.html">How it works</a>
-      <a href="guides/fix-npm-audit-vulnerabilities.html">Fix guides</a>
+      <a href="guides/fix-npm-audit-vulnerabilities.html">Fix guide</a>
+      <a href="guides/audit-npm-packages-security.html">Audit guide</a>
       <a href="https://labs.copperbaytech.com/shipsafe/" target="_blank" rel="noopener noreferrer">ShipSafe</a>
       <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">LeakCheck</a>
       <a href="https://labs.copperbaytech.com/exposurecheck/" target="_blank" rel="noopener noreferrer">ExposureCheck</a>

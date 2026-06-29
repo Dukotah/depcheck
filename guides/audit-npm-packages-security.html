@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Audit npm Packages for Security Before Deploying</title>
+<meta name="description" content="A step-by-step pre-deploy security audit for npm packages: CVE scanning, abandoned-package checks, license risk, typosquatting detection, and wiring it all into CI so nothing slips through.">
+<link rel="canonical" href="https://labs.copperbaytech.com/depcheck/guides/audit-npm-packages-security.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="DepCheck">
+<meta property="og:title" content="How to Audit npm Packages for Security Before Deploying">
+<meta property="og:description" content="npm audit catches CVEs — but abandoned packages, license bombs, and typosquatted names require a broader check. Here is the full pre-deploy workflow.">
+<meta property="og:url" content="https://labs.copperbaytech.com/depcheck/guides/audit-npm-packages-security.html">
+<meta property="og:image" content="https://labs.copperbaytech.com/depcheck/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#faf8f4">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle","headline":"How to Audit npm Packages for Security Before Deploying","description":"A pre-deploy npm security audit workflow covering CVE scanning with npm audit, abandoned and deprecated package detection, copyleft license risk, typosquatting, and CI integration. Includes a checklist and FAQ.","author":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"},"publisher":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"},"datePublished":"2026-06-29","dateModified":"2026-06-29","mainEntityOfPage":"https://labs.copperbaytech.com/depcheck/guides/audit-npm-packages-security.html","mainEntity":{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Does npm audit catch all security risks in my dependencies?","acceptedAnswer":{"@type":"Answer","text":"No. npm audit only reports vulnerabilities that have a published CVE or advisory in the npm advisory database. It does not flag packages that are abandoned (no releases in years), deprecated by their own maintainers, typosquatted (named to look like a popular package), or that carry a copyleft license incompatible with your commercial use. A comprehensive pre-deploy audit needs to cover all four categories."}},{"@type":"Question","name":"What is the risk of using an abandoned npm package?","acceptedAnswer":{"@type":"Answer","text":"An abandoned package will never receive a security patch. If a CVE is discovered after the maintainer stops responding, you are permanently exposed until you replace the dependency. Abandoned packages also frequently lose domain registration on their linked documentation sites, which can be re-registered by attackers to serve malicious content. npm audit will not warn you about abandonment — it only flags already-published advisories."}},{"@type":"Question","name":"What npm packages are considered typosquatting risks?","acceptedAnswer":{"@type":"Answer","text":"Typosquatted packages are published under names that are visually or typographically similar to well-known packages — for example, 'lodahs' instead of 'lodash', or 'expres' instead of 'express'. Attackers publish these hoping developers make a typo during npm install. The malicious package runs arbitrary code at install time via a postinstall script. Always double-check the exact package name before installing unfamiliar utilities."}},{"@type":"Question","name":"Which open-source licenses are risky for commercial projects?","acceptedAnswer":{"@type":"Answer","text":"Copyleft licenses — GPL, LGPL, AGPL, and EUPL — require that code using them is also released under the same license. For commercial closed-source projects this can be a significant problem: AGPL in particular requires you to open-source your entire application if it uses an AGPL-licensed package, even as a network service. MIT, BSD, Apache 2.0, and ISC are permissive and safe for commercial use. Always check the license field in package.json of your dependencies."}},{"@type":"Question","name":"How do I run a dependency audit in GitHub Actions CI?","acceptedAnswer":{"@type":"Answer","text":"Add npm audit --audit-level=high to your workflow after npm ci. This exits with a non-zero code only for high and critical vulnerabilities, failing the build before deployment. For broader coverage, add DepCheck's package.json scan to a pre-deploy step to catch abandoned packages, license issues, and typosquatting that npm audit misses."}},{"@type":"Question","name":"What is the difference between npm audit and npm outdated?","acceptedAnswer":{"@type":"Answer","text":"npm audit checks your installed dependency tree against the npm advisory database for published security vulnerabilities. npm outdated shows which of your packages have newer versions available, regardless of whether any of those versions contain security fixes. Both are complementary: npm audit tells you what is dangerous, npm outdated tells you what is stale. Running both together gives you a fuller picture of your dependency health."}},{"@type":"Question","name":"How often should I audit my npm dependencies?","acceptedAnswer":{"@type":"Answer","text":"At minimum: before every production deployment, and in CI on every pull request merge. New advisories are published continuously — a package that was safe last week may have a CVE published today. For active projects, a weekly scheduled npm audit run (many CI platforms support cron-triggered workflows) catches advisories that arrive between deployments."}}]}}
+</script>
+<link rel="stylesheet" href="../styles.css?v=1">
+<style>
+  .doc .lede{font-size:clamp(17px,2.3vw,20px);color:var(--muted)}
+  .doc h2{scroll-margin-top:80px}
+  .doc h3{font-family:"Fraunces",Georgia,serif;font-weight:600;font-size:19px;margin:22px 0 6px;letter-spacing:-.01em}
+  .toc{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 6px;padding:0;list-style:none}
+  .toc a{display:inline-block;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:14px;font-weight:600;color:var(--muted)}
+  .toc a:hover{border-color:var(--bay);color:var(--ink);text-decoration:none}
+  .callout.warn-callout{background:var(--fail-bg);border-left-color:var(--fail);color:#5e2019}
+  .callout.tip-callout{background:var(--pass-bg);border-left-color:var(--pass);color:#1b4d30}
+  .steps{margin:18px 0;padding-left:0;list-style:none;counter-reset:step}
+  .steps>li{position:relative;padding:4px 0 20px 46px;counter-increment:step}
+  .steps>li::before{content:counter(step);position:absolute;left:0;top:2px;width:30px;height:30px;border-radius:50%;background:var(--copper);color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center;font-family:"Fraunces",serif}
+  .steps>li strong{display:block;margin-bottom:4px}
+  .doc code.inline{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background:var(--line-2);padding:2px 6px;border-radius:5px}
+  pre{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;margin:12px 0}
+  pre code{background:none;padding:0;font-size:inherit}
+  .coverage-table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}
+  .coverage-table th{text-align:left;padding:10px 12px;background:var(--surface);border-bottom:2px solid var(--line);font-weight:600}
+  .coverage-table td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  .coverage-table tr:last-child td{border-bottom:none}
+  .yes{color:#186235;font-weight:700}
+  .no{color:#8b1a0a;font-weight:700}
+  .checklist{margin:18px 0;padding-left:0;list-style:none}
+  .checklist li{padding:8px 0 8px 32px;border-bottom:1px solid var(--line);position:relative;font-size:15px}
+  .checklist li:last-child{border-bottom:none}
+  .checklist li::before{content:"☐";position:absolute;left:0;top:8px;font-size:18px;color:var(--copper)}
+  .suite{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:18px 0 6px}
+  .suite a{display:block;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);transition:box-shadow .15s,transform .15s,border-color .15s}
+  .suite a:hover{text-decoration:none;box-shadow:var(--shadow-lift);transform:translateY(-2px);border-color:var(--line-2)}
+  .suite .s-name{font-family:"Fraunces",serif;font-weight:600;font-size:17px;color:var(--ink);display:block;margin:0 0 4px}
+  .suite p{color:var(--muted);font-size:14px;margin:0}
+  .suite .s-tag{display:inline-block;margin-bottom:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--bay);background:var(--bay-tint,#e8f4f6);border:1px solid #cfe1e3;border-radius:6px;padding:2px 8px}
+  .faq-section{margin:18px 0}
+  .faq-section details{border-bottom:1px solid var(--line);padding:14px 0}
+  .faq-section details:first-child{border-top:1px solid var(--line)}
+  .faq-section summary{font-weight:600;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .faq-section summary::-webkit-details-marker{display:none}
+  .faq-section summary::after{content:"+";font-size:20px;color:var(--muted);flex-shrink:0}
+  .faq-section details[open] summary::after{content:"\2212"}
+  .faq-section details p,.faq-section details ul{margin:12px 0 4px;color:var(--muted)}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to main content</a>
+
+<header class="masthead" role="banner">
+  <div class="wrap hdr-bar">
+    <a class="brand" href="../" aria-label="DepCheck — go to homepage">
+      <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+        <path d="M10 16 30 26 30 48 10 38 Z" fill="#14181f"/>
+        <path d="M50 16 30 26 30 48 50 38 Z" fill="#1d222b"/>
+        <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+        <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="wordmark">DepCheck</span>
+    </a>
+    <nav class="nav" aria-label="Primary navigation">
+      <a href="../about.html">How it works</a>
+      <a href="fix-npm-audit-vulnerabilities.html">Fix guides</a>
+      <a href="../">Scan your deps</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<article class="doc">
+  <div class="wrap narrow">
+    <p class="eyebrow" style="text-align:left">Pre-deploy security guide</p>
+    <h1>How to audit npm packages for security before deploying</h1>
+    <p class="lede">Most teams run <code class="inline">npm audit</code> and stop there. That catches CVEs — but it misses abandoned packages that will never receive a patch, copyleft licenses that can create legal exposure, and typosquatted names that run attacker code at install time. This guide covers the complete pre-deploy audit workflow.</p>
+
+    <ul class="toc" aria-label="On this page">
+      <li><a href="#what-audit-misses">What npm audit misses</a></li>
+      <li><a href="#step1-cve">Step 1: CVE scan</a></li>
+      <li><a href="#step2-abandoned">Step 2: Abandoned &amp; deprecated packages</a></li>
+      <li><a href="#step3-license">Step 3: License risk</a></li>
+      <li><a href="#step4-typosquat">Step 4: Typosquatting</a></li>
+      <li><a href="#step5-ci">Step 5: Wire up CI</a></li>
+      <li><a href="#checklist">Pre-deploy checklist</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+
+    <h2 id="what-audit-misses">What npm audit misses — and why it matters</h2>
+    <p><code class="inline">npm audit</code> queries the npm advisory database for packages in your dependency tree that have a published CVE or security advisory. That is genuinely useful — but the advisory database only knows about <em>known</em> problems that have been formally reported. It tells you nothing about:</p>
+
+    <table class="coverage-table">
+      <thead><tr><th>Risk category</th><th>npm audit</th><th>Full audit</th></tr></thead>
+      <tbody>
+        <tr><td>Published CVEs and security advisories</td><td class="yes">✓ Yes</td><td class="yes">✓ Yes</td></tr>
+        <tr><td>Packages with no recent releases (abandoned)</td><td class="no">✗ No</td><td class="yes">✓ Yes</td></tr>
+        <tr><td>Packages deprecated by their own maintainer</td><td class="no">✗ No</td><td class="yes">✓ Yes</td></tr>
+        <tr><td>Copyleft licenses (GPL, AGPL) incompatible with commercial use</td><td class="no">✗ No</td><td class="yes">✓ Yes</td></tr>
+        <tr><td>Typosquatted package names</td><td class="no">✗ No</td><td class="yes">✓ Yes</td></tr>
+        <tr><td>Packages with zero downloads or no documentation</td><td class="no">✗ No</td><td class="yes">✓ Yes</td></tr>
+      </tbody>
+    </table>
+
+    <p>Each gap represents a real category of incident: supply-chain attacks via abandoned packages, open-source license disputes, and typosquat attacks that run malicious install scripts. The pre-deploy workflow below covers all of them.</p>
+
+    <h2 id="step1-cve">Step 1: Run npm audit locally before pushing</h2>
+    <p>Start with the built-in CVE scan. The goal here is to run it <em>before</em> pushing to your branch — not as an afterthought in a CI failure email.</p>
+
+    <pre><code># Full audit report
+npm audit
+
+# JSON output for programmatic processing
+npm audit --json
+
+# Fail only on high and critical (useful in CI, see Step 5)
+npm audit --audit-level=high</code></pre>
+
+    <p>Read the output before moving on. Each advisory includes a severity, the affected package and version range, the dependency chain that brought it in, and the fixed version (if one exists). Anything at <strong>high</strong> or <strong>critical</strong> severity warrants a fix before you deploy — see the <a href="fix-npm-audit-vulnerabilities.html">npm audit remediation guide</a> for every fix path.</p>
+
+    <div class="callout tip-callout">
+      <strong>Tip:</strong> Run <code style="color:inherit">npm ci</code> instead of <code style="color:inherit">npm install</code> in your deployment pipeline. <code style="color:inherit">npm ci</code> installs exactly what is in your <code style="color:inherit">package-lock.json</code> without resolving newer transitive versions — keeping your audit results consistent between local and CI environments.
+    </div>
+
+    <h2 id="step2-abandoned">Step 2: Check for abandoned and deprecated packages</h2>
+    <p>This is the gap <code class="inline">npm audit</code> does not fill. A package that was last updated in 2020 and has no open issues being addressed will <em>never</em> receive a security patch — any future CVE is a permanent exposure. Similarly, a package marked deprecated in the npm registry is signaling that the maintainer considers it dead and unsafe to use.</p>
+
+    <p>Two ways to check:</p>
+
+    <h3>Option A: npm info per-package (for spot checks)</h3>
+    <pre><code># See when a package was last published
+npm info lodash time.modified
+
+# See if a package is deprecated
+npm info some-package deprecated</code></pre>
+    <p>This works for checking a specific package you're unsure about, but it doesn't scale across 50 or 100 dependencies.</p>
+
+    <h3>Option B: Paste your package.json into DepCheck (full sweep)</h3>
+    <p>Paste your <code class="inline">package.json</code> into <a href="../">DepCheck</a> to get a severity-sorted report covering abandoned packages, deprecated packages, typosquatting risk, and copyleft licenses across all your dependencies at once — in the browser, without sending your code anywhere.</p>
+
+    <p style="margin:24px 0 8px"><a class="btn primary" href="../">Scan your package.json with DepCheck &rarr;</a></p>
+
+    <p>Pay particular attention to packages with no release in 24+ months that are in your production dependency list (not just <code class="inline">devDependencies</code>). For each flagged abandoned package, check: (1) is there a maintained fork? (2) is there a modern equivalent in the ecosystem? (3) how much of the API do you actually use — could it be replaced with a few lines of native code?</p>
+
+    <h2 id="step3-license">Step 3: Check for license risk</h2>
+    <p>The npm ecosystem contains packages under hundreds of different licenses. Most popular packages use MIT, BSD, Apache 2.0, or ISC — all permissive, all safe for commercial use. But some use copyleft licenses that impose obligations on your own code:</p>
+
+    <ul>
+      <li><strong>GPL-2.0 / GPL-3.0</strong> — if your software links against a GPL package and is distributed, your entire codebase must be released under GPL. "Distributed" typically means shipping a desktop/mobile app, not running a server.</li>
+      <li><strong>LGPL-2.1 / LGPL-3.0</strong> — weaker copyleft; usually safe if you link dynamically and don't modify the library. Static linking is murkier.</li>
+      <li><strong>AGPL-3.0</strong> — the strongest copyleft for server software. If you run an AGPL-licensed package as a network service (which includes almost every web application), you must release your entire application source under AGPL. This affects many AI/ML libraries.</li>
+      <li><strong>EUPL</strong> — a European Union copyleft license; similar obligations to LGPL, but interacts differently with other copyleft licenses.</li>
+    </ul>
+
+    <p>To check a specific dependency:</p>
+    <pre><code>npm info package-name license</code></pre>
+
+    <p>To audit your full tree for copyleft licenses, paste your <code class="inline">package.json</code> into <a href="../">DepCheck</a> — it flags GPL, LGPL, AGPL, and EUPL dependencies by severity.</p>
+
+    <div class="callout warn-callout">
+      <strong>Indirect license exposure:</strong> A transitive dependency can carry a copyleft license even if your direct dependency does not. <code class="inline">npm info</code> on your own <code class="inline">package.json</code> entries won't catch this — you need to audit the full resolved tree.
+    </div>
+
+    <h2 id="step4-typosquat">Step 4: Watch for typosquatting when installing new packages</h2>
+    <p>Typosquatting attacks target developers who make a typo during <code class="inline">npm install</code>. A package named <code class="inline">expres</code>, <code class="inline">lodahs</code>, or <code class="inline">recat</code> may look harmless in the terminal output but runs a <code class="inline">postinstall</code> script that exfiltrates environment variables, SSH keys, or AWS credentials before you see any error.</p>
+
+    <p>Before installing any new package, especially one you heard about in a tutorial or Stack Overflow answer:</p>
+    <ol>
+      <li>Double-check the exact name on <a href="https://www.npmjs.com" target="_blank" rel="noopener noreferrer">npmjs.com</a> — look at the download count, the GitHub link, and the publisher account age.</li>
+      <li>Check how many packages that publisher account has published. A single package on a brand-new account is a yellow flag.</li>
+      <li>Look at the <code class="inline">package.json</code> on the registry page and check the <code class="inline">scripts.postinstall</code> field before installing.</li>
+    </ol>
+
+    <p>DepCheck also flags packages whose names are suspiciously similar to popular packages in its typosquatting heuristic — worth running after any batch of new installs.</p>
+
+    <h2 id="step5-ci">Step 5: Wire the audit into your CI/CD pipeline</h2>
+    <p>Local audits are a safety net; CI enforcement is the gate. Add these checks to your workflow so no deployment bypasses them.</p>
+
+    <h3>GitHub Actions example</h3>
+    <pre><code>name: Dependency security audit
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 9 * * 1'  # Weekly Monday 9 AM UTC
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (exact lockfile)
+        run: npm ci
+
+      - name: Run security audit
+        run: npm audit --audit-level=high
+        # Fails build on high/critical; low/moderate appear in log but don't block</code></pre>
+
+    <div class="callout tip-callout">
+      <strong>The <code style="color:inherit">schedule</code> trigger matters.</strong> A dependency that was safe when you last deployed may have a CVE published tomorrow. The weekly cron job catches advisories that land between your own pushes — without it, a long-lived deploy can silently accumulate high-severity findings.
+    </div>
+
+    <h3>Pre-commit hook (optional second line of defence)</h3>
+    <pre><code># .git/hooks/pre-push  (make executable: chmod +x .git/hooks/pre-push)
+#!/bin/sh
+npm audit --audit-level=critical
+if [ $? -ne 0 ]; then
+  echo "Critical npm audit vulnerability found. Push blocked."
+  echo "Run: npm audit fix  (or see the remediation guide)"
+  exit 1
+fi</code></pre>
+
+    <p>This blocks a push to the remote if any critical vulnerability is in the tree at push time — a useful backstop for developers who forget to audit locally.</p>
+
+    <h2 id="checklist">Pre-deploy dependency checklist</h2>
+    <ul class="checklist">
+      <li>Run <code class="inline">npm audit</code> — no high or critical findings outstanding</li>
+      <li>Paste <code class="inline">package.json</code> into <a href="../">DepCheck</a> — no abandoned or deprecated packages in production deps</li>
+      <li>No copyleft licenses (AGPL, GPL, LGPL) in the flagged list that conflict with your commercial use</li>
+      <li>No typosquatting flags for recently installed packages</li>
+      <li>CI runs <code class="inline">npm ci</code> (not <code class="inline">npm install</code>) and <code class="inline">npm audit --audit-level=high</code> on every push to main</li>
+      <li>A weekly scheduled audit cron is active in CI</li>
+      <li><code class="inline">package-lock.json</code> committed and up to date in the repo</li>
+    </ul>
+
+    <p style="margin:24px 0 8px"><a class="btn primary" href="../">Run the DepCheck scan &rarr;</a></p>
+
+    <h2 id="faq">Frequently asked questions</h2>
+    <div class="faq-section">
+      <details open>
+        <summary>Does npm audit catch all security risks in my dependencies?</summary>
+        <p>No. <code class="inline">npm audit</code> only reports vulnerabilities with a published advisory in the npm security database. It does not flag packages that are abandoned, deprecated, typosquatted, or carrying a copyleft license incompatible with your commercial project. A complete pre-deploy audit needs to cover all four categories — that is what this guide and <a href="../">DepCheck</a> cover.</p>
+      </details>
+      <details>
+        <summary>What is the real risk of using an abandoned npm package?</summary>
+        <p>An abandoned package will never receive a security patch after the maintainer stops responding. If a vulnerability is discovered — and the npm ecosystem regularly surfaces new advisories for packages years after their last release — you will be permanently exposed until you replace the dependency. Abandoned packages also frequently see their linked documentation domains expire and get re-registered by attackers. <code class="inline">npm audit</code> won't warn you until an advisory is formally published; by then, active exploitation may already be happening in the wild.</p>
+      </details>
+      <details>
+        <summary>What npm packages are considered typosquatting risks?</summary>
+        <p>Packages published under names visually similar to popular packages — for example, <code class="inline">lodahs</code> instead of <code class="inline">lodash</code>, or <code class="inline">cross-env2</code> instead of <code class="inline">cross-env</code>. Attackers publish these hoping developers make a typo during <code class="inline">npm install</code>. The package typically runs arbitrary code at install time via a <code class="inline">postinstall</code> script that exfiltrates environment variables. Always verify the exact package name on npmjs.com before installing unfamiliar utilities.</p>
+      </details>
+      <details>
+        <summary>Which open-source licenses are risky for a commercial project?</summary>
+        <p>GPL (v2 and v3), AGPL-3.0, LGPL, and EUPL all carry copyleft obligations. AGPL is particularly significant for web applications: it requires you to release your application's source code if you run the software as a network service — which covers virtually every web app. MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, and ISC are permissive and safe for commercial use without source-release obligations.</p>
+      </details>
+      <details>
+        <summary>How do I run a dependency audit in GitHub Actions?</summary>
+        <p>Add <code class="inline">npm ci</code> (exact lockfile install) followed by <code class="inline">npm audit --audit-level=high</code> to your workflow. The <code class="inline">--audit-level=high</code> flag causes a non-zero exit only for high and critical findings, which fails the workflow step and blocks the deployment. Add a <code class="inline">schedule: cron</code> trigger to catch advisories that arrive between your own pushes. See the full workflow example in Step 5 above.</p>
+      </details>
+      <details>
+        <summary>What is the difference between npm audit and npm outdated?</summary>
+        <p><code class="inline">npm audit</code> checks your installed tree against the advisory database for known CVEs. <code class="inline">npm outdated</code> shows which packages have newer versions available regardless of security. They complement each other: <code class="inline">npm audit</code> tells you what is dangerous now, <code class="inline">npm outdated</code> tells you what is stale. Running both gives you a fuller picture — a package with a fix in a new version will show up in <code class="inline">npm outdated</code> before the advisory is always published.</p>
+      </details>
+      <details>
+        <summary>How often should I run a dependency security audit?</summary>
+        <p>Before every production deployment, and on every pull request in CI. For active projects, also add a weekly scheduled audit job in CI — new advisories are published continuously and a long-lived deployment can accumulate findings between your own pushes. For high-risk applications (handling payments, PII, or authentication), daily scheduled audits are reasonable given the volume of advisories published each week.</p>
+      </details>
+    </div>
+
+    <h2 style="margin-top:48px">Also in the Copper Bay Labs ship-safety suite</h2>
+    <p>Dependencies are one layer of your security posture. These free tools cover the rest before you ship:</p>
+    <div class="suite">
+      <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">Secret scanning</span>
+        <span class="s-name">LeakCheck</span>
+        <p>Paste code or a config file and see exposed API keys and secrets flagged before they reach the repo.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/exposurecheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">Post-deploy</span>
+        <span class="s-name">ExposureCheck</span>
+        <p>Scan your live URL for exposed <code class="inline">.env</code> files, <code class="inline">.git</code> directories, source maps, and bundled secrets.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/hardencheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">HTTP hardening</span>
+        <span class="s-name">HardenCheck</span>
+        <p>Check your security headers — CSP, HSTS, X-Frame-Options — so your site isn't an exfiltration vector.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/shipsafe/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">ADA / WCAG risk</span>
+        <span class="s-name">ShipSafe</span>
+        <p>Scan your site for accessibility failures that create ADA lawsuit risk before you launch.</p>
+      </a>
+    </div>
+  </div>
+</article>
+</main>
+
+<footer class="footer" role="contentinfo">
+  <div class="wrap foot">
+    <div>
+      <a class="brand small" href="../" aria-label="DepCheck — homepage">
+        <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+          <path d="M10 16 30 26 30 48 10 38 Z" fill="#cbd2da"/>
+          <path d="M50 16 30 26 30 48 50 38 Z" fill="#aeb6c0"/>
+          <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+          <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="wordmark">DepCheck</span>
+      </a>
+      <p class="fine">Heuristic dependency checks, not a security guarantee.</p>
+    </div>
+    <nav class="foot-nav" aria-label="Footer navigation">
+      <a href="../about.html">How it works</a>
+      <a href="fix-npm-audit-vulnerabilities.html">Fix guide</a>
+      <a href="audit-npm-packages-security.html">Audit guide</a>
+      <a href="https://labs.copperbaytech.com/shipsafe/" target="_blank" rel="noopener noreferrer">ShipSafe</a>
+      <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">LeakCheck</a>
+      <a href="https://labs.copperbaytech.com/exposurecheck/" target="_blank" rel="noopener noreferrer">ExposureCheck</a>
+      <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Secure my project &rarr;</a>
+    </nav>
+  </div>
+  <div class="wrap">
+    <p class="madeby">A <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Copper Bay Labs</a> product.</p>
+  </div>
+</footer>
+</body>
+</html>
