@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What Is npm Typosquatting and How to Detect It</title>
+<meta name="description" content="npm typosquatting puts malicious packages a typo away from the ones you use every day. Learn how the attack works, how to verify packages before installing, and how to audit your existing dependencies.">
+<link rel="canonical" href="https://labs.copperbaytech.com/depcheck/guides/npm-typosquatting-how-to-detect.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="DepCheck">
+<meta property="og:title" content="What Is npm Typosquatting and How to Detect It">
+<meta property="og:description" content="One character away from the package you meant. How npm typosquatting works, documented examples, and the verification steps that catch it before it runs on your machine.">
+<meta property="og:url" content="https://labs.copperbaytech.com/depcheck/guides/npm-typosquatting-how-to-detect.html">
+<meta property="og:image" content="https://labs.copperbaytech.com/depcheck/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#faf8f4">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle","headline":"What Is npm Typosquatting and How to Detect It","description":"A guide to npm typosquatting attacks: how they work, documented real examples, a five-step pre-install verification workflow, and how to audit existing dependencies with DepCheck.","author":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"},"publisher":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"},"datePublished":"2026-07-19","dateModified":"2026-07-19","mainEntityOfPage":"https://labs.copperbaytech.com/depcheck/guides/npm-typosquatting-how-to-detect.html","mainEntity":{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What is npm typosquatting?","acceptedAnswer":{"@type":"Answer","text":"npm typosquatting is a supply-chain attack where an attacker publishes a package with a name nearly identical to a popular package — for example, 'crossenv' instead of 'cross-env', or 'lodahs' instead of 'lodash'. Developers who mistype the real package name during npm install will install the attacker's version instead. The malicious package runs arbitrary code on the developer's machine via a postinstall script, typically exfiltrating environment variables, SSH keys, or npm tokens."}},{"@type":"Question","name":"Does npm audit catch typosquatted packages?","acceptedAnswer":{"@type":"Answer","text":"No. npm audit only checks packages in your dependency tree against the npm advisory database for published CVEs. A typosquatted package that hasn't been formally reported yet — or one that was removed from npm but already executed on your machine — will not appear in npm audit output. Detecting typosquatting requires a different check: comparing package names against known popular packages for suspicious similarity, and inspecting postinstall scripts before installing."}},{"@type":"Question","name":"How do typosquatted npm packages steal credentials?","acceptedAnswer":{"@type":"Answer","text":"They run code during the install phase itself via the 'scripts.postinstall' field in package.json. When npm installs a package it automatically runs the postinstall script with the permissions of the current user — before you see the package's source code, before you run any tests, and often before you realize anything happened. A common payload reads environment variables (AWS_ACCESS_KEY_ID, OPENAI_API_KEY, npm tokens stored in ~/.npmrc) and sends them to an attacker-controlled server via an HTTP request."}},{"@type":"Question","name":"What are examples of npm typosquatting attacks?","acceptedAnswer":{"@type":"Answer","text":"The 2017 'crossenv' campaign is one of the most documented: attackers published packages named crossenv, babelcli, and several others that mimicked popular packages and ran postinstall scripts to steal npm tokens and environment variables from developer machines. These were discovered by npm security researchers, reported, and removed — but the packages had already been installed hundreds of times before removal. Since then, npm has implemented automated scanning, but new typosquatted packages continue to be published and discovered regularly."}},{"@type":"Question","name":"How do I check a package for typosquatting before installing it?","acceptedAnswer":{"@type":"Answer","text":"Before running npm install: (1) look up the exact package name on npmjs.com and verify the download count matches the popular package you expect; (2) check the publisher account — how many packages do they publish? A single-package account on a brand-new account is a red flag; (3) read the package.json directly on the registry page and look at the 'scripts' object for any postinstall, preinstall, or install entries; (4) check the GitHub repository link — does it point to the real project? (5) run npm info <package-name> to see the description, homepage, and maintainers before the package touches your filesystem."}},{"@type":"Question","name":"How can I audit my existing package.json for typosquatted packages?","acceptedAnswer":{"@type":"Answer","text":"Paste your package.json into DepCheck — it compares all package names in your manifest against a database of popular packages and flags any names that are suspiciously similar (single character transpositions, additions, or deletions). This covers your existing installed dependencies without requiring you to inspect each one manually. For a manual spot check on a specific package, run: npm info <package-name> and compare the maintainer, repository, and description to what you expect."}},{"@type":"Question","name":"What is the difference between typosquatting and dependency confusion?","acceptedAnswer":{"@type":"Answer","text":"Typosquatting targets developer typos: the attacker publishes 'lodahs' hoping someone types 'npm install lodahs' instead of 'npm install lodash'. Dependency confusion (also called namespace confusion) targets private package names: if your company uses a private package named @company/utils and an attacker publishes a public package with the same name, npm may resolve the public version instead of your private one depending on registry configuration. Both are supply-chain attacks that run attacker code at install time, but they exploit different resolution behaviors."}}]}}
+</script>
+<link rel="stylesheet" href="../styles.css?v=1">
+<style>
+  .doc .lede{font-size:clamp(17px,2.3vw,20px);color:var(--muted)}
+  .doc h2{scroll-margin-top:80px}
+  .doc h3{font-family:"Fraunces",Georgia,serif;font-weight:600;font-size:19px;margin:22px 0 6px;letter-spacing:-.01em}
+  .toc{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 6px;padding:0;list-style:none}
+  .toc a{display:inline-block;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:14px;font-weight:600;color:var(--muted)}
+  .toc a:hover{border-color:var(--bay);color:var(--ink);text-decoration:none}
+  .callout.warn-callout{background:var(--fail-bg);border-left-color:var(--fail);color:#5e2019}
+  .callout.tip-callout{background:var(--pass-bg);border-left-color:var(--pass);color:#1b4d30}
+  .steps{margin:18px 0;padding-left:0;list-style:none;counter-reset:step}
+  .steps>li{position:relative;padding:4px 0 20px 46px;counter-increment:step}
+  .steps>li::before{content:counter(step);position:absolute;left:0;top:2px;width:30px;height:30px;border-radius:50%;background:var(--copper);color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center;font-family:"Fraunces",serif}
+  .steps>li strong{display:block;margin-bottom:4px}
+  .doc code.inline{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background:var(--line-2);padding:2px 6px;border-radius:5px}
+  pre{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;margin:12px 0}
+  pre code{background:none;padding:0;font-size:inherit}
+  .coverage-table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}
+  .coverage-table th{text-align:left;padding:10px 12px;background:var(--surface);border-bottom:2px solid var(--line);font-weight:600}
+  .coverage-table td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  .coverage-table tr:last-child td{border-bottom:none}
+  .yes{color:#186235;font-weight:700}
+  .no{color:#8b1a0a;font-weight:700}
+  .checklist{margin:18px 0;padding-left:0;list-style:none}
+  .checklist li{padding:8px 0 8px 32px;border-bottom:1px solid var(--line);position:relative;font-size:15px}
+  .checklist li:last-child{border-bottom:none}
+  .checklist li::before{content:"☐";position:absolute;left:0;top:8px;font-size:18px;color:var(--copper)}
+  .signal-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin:18px 0}
+  .signal-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .signal-card .s-label{font-family:"Fraunces",serif;font-weight:700;font-size:16px;color:var(--ink);display:block;margin:0 0 6px}
+  .signal-card p{color:var(--muted);font-size:14px;margin:0;line-height:1.5}
+  .signal-card.red{border-top:3px solid var(--fail,#c0392b)}
+  .signal-card.amber{border-top:3px solid #d4830b}
+  .suite{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:18px 0 6px}
+  .suite a{display:block;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);transition:box-shadow .15s,transform .15s,border-color .15s}
+  .suite a:hover{text-decoration:none;box-shadow:var(--shadow-lift);transform:translateY(-2px);border-color:var(--line-2)}
+  .suite .s-name{font-family:"Fraunces",serif;font-weight:600;font-size:17px;color:var(--ink);display:block;margin:0 0 4px}
+  .suite p{color:var(--muted);font-size:14px;margin:0}
+  .suite .s-tag{display:inline-block;margin-bottom:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--bay);background:var(--bay-tint,#e8f4f6);border:1px solid #cfe1e3;border-radius:6px;padding:2px 8px}
+  .faq-section{margin:18px 0}
+  .faq-section details{border-bottom:1px solid var(--line);padding:14px 0}
+  .faq-section details:first-child{border-top:1px solid var(--line)}
+  .faq-section summary{font-weight:600;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .faq-section summary::-webkit-details-marker{display:none}
+  .faq-section summary::after{content:"+";font-size:20px;color:var(--muted);flex-shrink:0}
+  .faq-section details[open] summary::after{content:"\2212"}
+  .faq-section details p,.faq-section details ul{margin:12px 0 4px;color:var(--muted)}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to main content</a>
+
+<header class="masthead" role="banner">
+  <div class="wrap hdr-bar">
+    <a class="brand" href="../" aria-label="DepCheck — go to homepage">
+      <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+        <path d="M10 16 30 26 30 48 10 38 Z" fill="#14181f"/>
+        <path d="M50 16 30 26 30 48 50 38 Z" fill="#1d222b"/>
+        <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+        <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="wordmark">DepCheck</span>
+    </a>
+    <nav class="nav" aria-label="Primary navigation">
+      <a href="../about.html">How it works</a>
+      <a href="fix-npm-audit-vulnerabilities.html">Fix guides</a>
+      <a href="audit-npm-packages-security.html">Audit guide</a>
+      <a href="npm-typosquatting-how-to-detect.html" aria-current="page">Typosquatting</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<article class="doc">
+  <div class="wrap narrow">
+    <p class="eyebrow" style="text-align:left">Supply-chain security guide</p>
+    <h1>What is npm typosquatting and how to detect it</h1>
+    <p class="lede">An attacker publishes a package called <code class="inline">crossenv</code>. You mean to install <code class="inline">cross-env</code>. One missing hyphen later, attacker code runs on your machine — before your editor even opens. This guide covers how typosquatting works, documented examples, and the verification steps that stop it.</p>
+
+    <ul class="toc" aria-label="On this page">
+      <li><a href="#how-it-works">How the attack works</a></li>
+      <li><a href="#real-examples">Documented examples</a></li>
+      <li><a href="#three-signals">Three red flags</a></li>
+      <li><a href="#before-install">Before you install: 5 checks</a></li>
+      <li><a href="#audit-existing">Audit your existing deps</a></li>
+      <li><a href="#team-enforcement">Team enforcement</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+
+    <h2 id="how-it-works">How the attack works</h2>
+    <p>npm has no review gate. Anyone can publish a package with any name that isn't already taken. That openness — which is also what made npm's ecosystem grow so fast — means an attacker can publish <code class="inline">lodahs</code> the same afternoon <code class="inline">lodash</code> became popular.</p>
+
+    <p>The attack works in two stages:</p>
+
+    <ol>
+      <li><strong>Wait for a typo.</strong> Developers mistype package names — especially when following a tutorial, copying from a Stack Overflow answer, or typing quickly in a terminal. Popular packages with hyphens (<code class="inline">cross-env</code>, <code class="inline">babel-cli</code>), common suffixes (<code class="inline">-js</code>, <code class="inline">-node</code>), or long names are the easiest targets.</li>
+      <li><strong>Execute at install time.</strong> npm runs the <code class="inline">scripts.postinstall</code> field in <code class="inline">package.json</code> automatically when a package is installed — with no confirmation prompt, no sandbox, and the full permissions of the current user. A postinstall script can read files, make network requests, and access every environment variable in the current shell session.</li>
+    </ol>
+
+    <div class="callout warn-callout">
+      <strong>The timing matters.</strong> Code from a postinstall script runs <em>during</em> <code style="color:inherit">npm install</code>, not when you later import the package. By the time you see your prompt return, any credential exfiltration has already completed — even if you immediately delete the package.
+    </div>
+
+    <p>The typical payload reads environment variables like <code class="inline">AWS_ACCESS_KEY_ID</code>, <code class="inline">OPENAI_API_KEY</code>, or the npm token stored in <code class="inline">~/.npmrc</code>, then sends them to an external server via a single HTTP request. The attacker's package itself may look completely innocuous — it might even re-export the real package's API so the rest of your code works fine and nothing looks broken.</p>
+
+    <h2 id="real-examples">Documented examples</h2>
+    <p>These are not hypotheticals. Typosquatting attacks on npm have been documented and reported by security researchers since at least 2017.</p>
+
+    <h3>The 2017 crossenv campaign</h3>
+    <p>Security researcher Nick Sweeting documented a batch of packages — including <code class="inline">crossenv</code> (targeting <code class="inline">cross-env</code>), <code class="inline">babelcli</code> (targeting <code class="inline">babel-cli</code>), <code class="inline">socket.io.js</code>, and several others — that were published specifically to mimic popular packages. Each ran a postinstall script to steal npm tokens and environment variables from developer machines. npm removed them after the report, but not before they had accumulated real installs.</p>
+
+    <h3>Ongoing automated campaigns</h3>
+    <p>Since 2017, npm security (and independent researchers) have continued to discover and remove typosquatted packages. The pattern has stayed consistent: an attacker watches the npm download charts, picks the top 100–200 most-installed packages, and publishes variations on each name. Automated tooling has made both the attack and the detection faster — npm now scans for name similarity at publish time, but the checks are heuristic and not exhaustive.</p>
+
+    <h3>What npm audit will not catch</h3>
+    <table class="coverage-table">
+      <thead><tr><th>Check</th><th>npm audit</th><th>Name similarity scan (DepCheck)</th></tr></thead>
+      <tbody>
+        <tr><td>Package has a published CVE advisory</td><td class="yes">✓ Yes</td><td class="no">✗ No</td></tr>
+        <tr><td>Package name is similar to a popular package</td><td class="no">✗ No</td><td class="yes">✓ Yes</td></tr>
+        <tr><td>Package was removed from npm after a report</td><td class="no">✗ No — already ran</td><td class="no">✗ No — already ran</td></tr>
+        <tr><td>Package has a suspicious postinstall script</td><td class="no">✗ No</td><td class="no">✗ No — inspect manually</td></tr>
+        <tr><td>Publisher account looks new or single-package</td><td class="no">✗ No</td><td class="no">✗ No — inspect manually</td></tr>
+      </tbody>
+    </table>
+
+    <p>The table makes the key point clear: <code class="inline">npm audit</code> and typosquatting detection solve different problems. A typosquatted package that hasn't been formally reported to npm's advisory database is invisible to <code class="inline">npm audit</code>. Catching it requires a name-similarity check and manual inspection before the package is installed.</p>
+
+    <h2 id="three-signals">Three red flags in a package</h2>
+    <p>No single signal is definitive on its own — a legitimate package with a short name can look suspicious. The combination of all three is what makes a package high-risk.</p>
+
+    <div class="signal-grid">
+      <div class="signal-card red">
+        <span class="s-label">Name similarity</span>
+        <p>The package name is one character different from a popular package: a transposition (<code class="inline">lodahs</code>), a missing or extra character (<code class="inline">expres</code>, <code class="inline">expresss</code>), a missing hyphen (<code class="inline">crossenv</code>), or a common suffix (<code class="inline">lodash-js</code>).</p>
+      </div>
+      <div class="signal-card red">
+        <span class="s-label">Unexpected install script</span>
+        <p>The package's <code class="inline">package.json</code> has a <code class="inline">scripts.postinstall</code>, <code class="inline">scripts.preinstall</code>, or <code class="inline">scripts.install</code> field. Many legitimate packages use postinstall scripts, but they should be explainable — if the script shells out to an external URL or reads home-directory files, stop.</p>
+      </div>
+      <div class="signal-card amber">
+        <span class="s-label">Publisher signals</span>
+        <p>The publisher account was created recently, has published only one or two packages, and the package has few or no weekly downloads despite being published for some time. The GitHub repository link is missing or points to a fork of the real project.</p>
+      </div>
+    </div>
+
+    <h2 id="before-install">Before you install: 5 checks</h2>
+    <p>These five steps take under two minutes and completely eliminate the install-time risk for new packages. Make them a habit for any package you haven't installed before.</p>
+
+    <ol class="steps">
+      <li>
+        <strong>Spell the name on npmjs.com before you type it in the terminal.</strong>
+        Search for the package name directly on <a href="https://www.npmjs.com" target="_blank" rel="noopener noreferrer">npmjs.com</a>. The real <code class="inline">cross-env</code> has millions of weekly downloads. If the package you find has hundreds, it's worth a closer look at who published it.
+      </li>
+      <li>
+        <strong>Read the postinstall script before it runs.</strong>
+        On the npmjs.com package page, click "Code" or look for a link to the GitHub repository. Open the package's <code class="inline">package.json</code> and find the <code class="inline">scripts</code> object. Is there a <code class="inline">postinstall</code> entry? If so, read what it does before running <code class="inline">npm install</code>. You can also use <code class="inline">npm pack</code> to inspect a package without installing it:
+        <pre><code># Download without running any install scripts
+npm pack crossenv
+# Then inspect the tarball
+tar -tzf crossenv-*.tgz</code></pre>
+      </li>
+      <li>
+        <strong>Check the publisher account.</strong>
+        On the npmjs.com page, click the publisher's username. How many packages have they published? How long has the account been active? A package maintainer who has published a single package one week ago and whose profile has no avatar or bio is a yellow flag.
+      </li>
+      <li>
+        <strong>Verify the repository link.</strong>
+        The real <code class="inline">cross-env</code> links to <code class="inline">github.com/kentcdodds/cross-env</code>. A typosquatted package might link to a fork, a personal copy, or no repository at all. The repository link is in the package metadata on npmjs.com. If it's missing or points somewhere unexpected, don't install.
+      </li>
+      <li>
+        <strong>Use npm info before npm install.</strong>
+        <code class="inline">npm info</code> fetches registry metadata without running any scripts. It shows you the description, maintainers, homepage, and repository in one output before anything touches your machine:
+        <pre><code>npm info cross-env</code></pre>
+        Compare the output to what you expect. If the description doesn't match the real package, the maintainer list looks unfamiliar, or the homepage is empty, stop and re-verify the name.
+      </li>
+    </ol>
+
+    <h2 id="audit-existing">Audit your existing package.json</h2>
+    <p>If you've been running <code class="inline">npm install</code> for a while without checking names, it's worth a one-time audit of your existing dependencies. There are two ways to do this.</p>
+
+    <h3>Option A: Scan with DepCheck (recommended for full sweeps)</h3>
+    <p>Paste your <code class="inline">package.json</code> into <a href="../">DepCheck</a>. It compares every package name in your manifest against a database of popular packages and flags any name that is suspiciously similar — a single-character transposition, an added suffix, or a missing delimiter. You get a severity-sorted report covering typosquatting risk alongside CVEs, abandoned packages, and license issues.</p>
+
+    <p style="margin:24px 0 8px"><a class="btn primary" href="../">Scan your package.json for typosquatting risk &rarr;</a></p>
+
+    <h3>Option B: Manual spot check on a specific package</h3>
+    <p>If you want to check one package you're unsure about:</p>
+    <pre><code># Fetch registry metadata (no scripts run)
+npm info &lt;package-name&gt;
+
+# Compare to the real package
+npm info cross-env
+npm info crossenv   # if this exists, compare the two outputs side-by-side</code></pre>
+
+    <p>If both exist, look at: (1) the download counts — <code class="inline">npm info</code> shows weekly downloads; (2) the maintainers list; (3) the repository field. Any significant divergence between the two is worth investigating.</p>
+
+    <div class="callout tip-callout">
+      <strong>Check your lockfile too.</strong> <code class="inline">package-lock.json</code> records the exact resolved version and its integrity hash (<code style="color:inherit">sha512</code>) for every package in your tree — including transitive dependencies your <code style="color:inherit">package.json</code> never mentions directly. Reviewing a lockfile diff on any PR that adds a new dependency shows exactly what was resolved and from where.
+    </div>
+
+    <h2 id="team-enforcement">Team enforcement</h2>
+    <p>Individual checks work. But a team of five developers installing packages independently creates five separate attack surfaces. These measures extend the protection to the whole team.</p>
+
+    <h3>Commit and review the lockfile on every dependency change</h3>
+    <p>Require <code class="inline">package-lock.json</code> to be committed and require it to appear in PRs any time a dependency is added or changed. A lockfile review is much faster than a code review — you're looking at name, version, and integrity hash — and it catches anyone who installed something off-script.</p>
+
+    <h3>Use npm ci in CI (not npm install)</h3>
+    <p><code class="inline">npm ci</code> installs exactly what is in the lockfile. It will not resolve a different version of a package due to a range match, and it fails if the lockfile is out of sync with <code class="inline">package.json</code>. This closes the window where a typosquatted package could be silently resolved in CI even if the lockfile looks correct locally.</p>
+
+    <h3>Block unexpected install scripts with --ignore-scripts</h3>
+    <p>For projects where none of your dependencies legitimately need postinstall scripts, you can disable them entirely:</p>
+    <pre><code>npm install --ignore-scripts</code></pre>
+    <p>This prevents any <code class="inline">postinstall</code>, <code class="inline">preinstall</code>, or <code class="inline">install</code> script from running — which blocks the primary attack vector of a typosquatted package, even if one slips through a name check. The caveat: some packages use postinstall legitimately (native addons, binary downloads). Check whether your specific dependency set requires it before making this the default.</p>
+
+    <pre><code># Set as a project-level default in .npmrc
+ignore-scripts=true</code></pre>
+
+    <div class="callout warn-callout">
+      <strong>Lockfile confusion attacks.</strong> A more sophisticated variant of supply-chain attack targets the lockfile directly: an attacker social-engineers a contributor into committing a modified <code style="color:inherit">package-lock.json</code> that points to a malicious resolved URL for a legitimate package name. Protect against this by verifying lockfile changes in code review and using npm's built-in integrity checks (<code style="color:inherit">npm ci</code> verifies the sha512 hash of every downloaded package against the lockfile entry).
+    </div>
+
+    <h2 style="margin-top:48px">Keep the full pre-deploy checklist</h2>
+    <p>Typosquatting is one of the six risk categories that the <a href="audit-npm-packages-security.html">full pre-deploy audit guide</a> covers — alongside CVEs, abandoned packages, license risk, loose version ranges, and dependency bloat. A complete audit runs all six before every deployment.</p>
+
+    <h2 id="faq">Frequently asked questions</h2>
+    <div class="faq-section">
+      <details open>
+        <summary>What is npm typosquatting?</summary>
+        <p>An attack where a malicious package is published under a name nearly identical to a popular one — a missing hyphen, a transposed letter, an added suffix. Developers who mistype the real name during <code class="inline">npm install</code> install the attacker's version. The malicious package runs code at install time via a <code class="inline">postinstall</code> script, typically stealing environment variables, API keys, or npm tokens. The code runs before your project ever imports the package.</p>
+      </details>
+      <details>
+        <summary>Does npm audit catch typosquatted packages?</summary>
+        <p>No. <code class="inline">npm audit</code> checks packages against the npm advisory database for published CVE advisories. A typosquatted package that hasn't been formally reported yet — which is most of them, since the window between publication and removal can be days or weeks — won't appear in <code class="inline">npm audit</code> output at all. Detecting typosquatting requires a name-similarity check before install, not an advisory lookup after.</p>
+      </details>
+      <details>
+        <summary>How do typosquatted packages steal credentials?</summary>
+        <p>Via the <code class="inline">scripts.postinstall</code> field in <code class="inline">package.json</code>. npm automatically runs this script when a package is installed, with the current user's full permissions and access to all environment variables in the shell session. A postinstall script can read <code class="inline">~/.npmrc</code> (which stores your npm token), environment variables like <code class="inline">AWS_ACCESS_KEY_ID</code> or <code class="inline">DATABASE_URL</code>, and files in your home directory — and send them to an external URL via a simple HTTP request. The exfiltration completes during <code class="inline">npm install</code>, not at runtime.</p>
+      </details>
+      <details>
+        <summary>Are there documented examples of npm typosquatting attacks?</summary>
+        <p>Yes. The 2017 <code class="inline">crossenv</code> campaign (reported by Nick Sweeting) involved multiple packages — <code class="inline">crossenv</code>, <code class="inline">babelcli</code>, <code class="inline">socket.io.js</code>, and others — published to mimic popular packages and steal npm tokens via postinstall scripts. Since then, security researchers and npm's own team have continued to find and remove new campaigns. The attack is not theoretical — it has resulted in real credential theft from developer machines.</p>
+      </details>
+      <details>
+        <summary>How do I check if a package has a postinstall script before installing it?</summary>
+        <p>Use <code class="inline">npm pack &lt;package-name&gt;</code> to download the package tarball without running any scripts. Then extract it and read the <code class="inline">package.json</code> inside. Alternatively, view the package on npmjs.com and navigate to the repository link to read the <code class="inline">package.json</code> directly in GitHub. Look for a <code class="inline">scripts</code> object with <code class="inline">postinstall</code>, <code class="inline">preinstall</code>, or <code class="inline">install</code> entries.</p>
+      </details>
+      <details>
+        <summary>What is the difference between typosquatting and dependency confusion?</summary>
+        <p>Typosquatting exploits developer typing errors — a mistyped name resolves to the attacker's package. Dependency confusion (also called namespace confusion) exploits registry resolution behavior — an attacker publishes a public package with the same name as your company's private internal package, and npm's resolution order causes the public malicious version to be installed instead. Both attack vectors run code at install time, but they require different defences: typosquatting is stopped by name verification, dependency confusion by scoped packages and explicit registry configuration.</p>
+      </details>
+      <details>
+        <summary>Does blocking postinstall scripts with --ignore-scripts break things?</summary>
+        <p>It depends on your dependencies. Some packages use postinstall legitimately — native Node.js addons (like <code class="inline">node-sass</code> or packages using <code class="inline">node-gyp</code>) compile binaries at install time; some packages download pre-built platform-specific binaries; some run one-time setup steps. If none of your dependencies require postinstall, adding <code class="inline">ignore-scripts=true</code> to <code class="inline">.npmrc</code> is a low-cost security improvement. Test it in a clean install first to confirm nothing breaks.</p>
+      </details>
+    </div>
+
+    <h2 style="margin-top:48px">Also in the Copper Bay Labs ship-safety suite</h2>
+    <p>Dependencies are one layer of your security posture. These free tools cover the rest before you ship:</p>
+    <div class="suite">
+      <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">Secret scanning</span>
+        <span class="s-name">LeakCheck</span>
+        <p>Paste code or a config file and see exposed API keys and secrets flagged before they reach the repo.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/exposurecheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">Post-deploy</span>
+        <span class="s-name">ExposureCheck</span>
+        <p>Scan your live URL for exposed <code class="inline">.env</code> files, <code class="inline">.git</code> directories, source maps, and bundled secrets.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/hardencheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">HTTP hardening</span>
+        <span class="s-name">HardenCheck</span>
+        <p>Check your security headers — CSP, HSTS, X-Frame-Options — so your site isn't an exfiltration vector.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/shipsafe/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">ADA / WCAG risk</span>
+        <span class="s-name">ShipSafe</span>
+        <p>Scan your site for accessibility failures that create ADA lawsuit risk before you launch.</p>
+      </a>
+    </div>
+  </div>
+</article>
+</main>
+
+<footer class="footer" role="contentinfo">
+  <div class="wrap foot">
+    <div>
+      <a class="brand small" href="../" aria-label="DepCheck — homepage">
+        <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+          <path d="M10 16 30 26 30 48 10 38 Z" fill="#cbd2da"/>
+          <path d="M50 16 30 26 30 48 50 38 Z" fill="#aeb6c0"/>
+          <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+          <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="wordmark">DepCheck</span>
+      </a>
+      <p class="fine">Heuristic dependency checks, not a security guarantee.</p>
+    </div>
+    <nav class="foot-nav" aria-label="Footer navigation">
+      <a href="../about.html">How it works</a>
+      <a href="fix-npm-audit-vulnerabilities.html">Fix guide</a>
+      <a href="audit-npm-packages-security.html">Audit guide</a>
+      <a href="npm-typosquatting-how-to-detect.html">Typosquatting</a>
+      <a href="https://labs.copperbaytech.com/shipsafe/" target="_blank" rel="noopener noreferrer">ShipSafe</a>
+      <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">LeakCheck</a>
+      <a href="https://labs.copperbaytech.com/exposurecheck/" target="_blank" rel="noopener noreferrer">ExposureCheck</a>
+      <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Secure my project &rarr;</a>
+    </nav>
+  </div>
+  <div class="wrap">
+    <p class="madeby">A <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Copper Bay Labs</a> product.</p>
+  </div>
+</footer>
+</body>
+</html>

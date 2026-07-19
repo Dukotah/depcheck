@@ -86,6 +86,7 @@
     <nav class="nav" aria-label="Primary navigation">
       <a href="../about.html">How it works</a>
       <a href="fix-npm-audit-vulnerabilities.html">Fix guides</a>
+      <a href="npm-typosquatting-how-to-detect.html">Typosquatting</a>
       <a href="../">Scan your deps</a>
     </nav>
   </div>
@@ -184,7 +185,7 @@ npm info some-package deprecated</code></pre>
     </div>
 
     <h2 id="step4-typosquat">Step 4: Watch for typosquatting when installing new packages</h2>
-    <p>Typosquatting attacks target developers who make a typo during <code class="inline">npm install</code>. A package named <code class="inline">expres</code>, <code class="inline">lodahs</code>, or <code class="inline">recat</code> may look harmless in the terminal output but runs a <code class="inline">postinstall</code> script that exfiltrates environment variables, SSH keys, or AWS credentials before you see any error.</p>
+    <p>Typosquatting attacks target developers who make a typo during <code class="inline">npm install</code>. A package named <code class="inline">expres</code>, <code class="inline">lodahs</code>, or <code class="inline">crossenv</code> may look harmless in the terminal output but runs a <code class="inline">postinstall</code> script that exfiltrates environment variables, SSH keys, or AWS credentials before you see any error — and the code runs during <code class="inline">npm install</code>, before you ever import the package.</p>
 
     <p>Before installing any new package, especially one you heard about in a tutorial or Stack Overflow answer:</p>
     <ol>
@@ -193,7 +194,7 @@ npm info some-package deprecated</code></pre>
       <li>Look at the <code class="inline">package.json</code> on the registry page and check the <code class="inline">scripts.postinstall</code> field before installing.</li>
     </ol>
 
-    <p>DepCheck also flags packages whose names are suspiciously similar to popular packages in its typosquatting heuristic — worth running after any batch of new installs.</p>
+    <p>DepCheck also flags packages whose names are suspiciously similar to popular packages in its typosquatting heuristic — worth running after any batch of new installs. For a deeper look at how the attack works and a complete verification workflow, see the <a href="npm-typosquatting-how-to-detect.html">npm typosquatting detection guide</a>.</p>
 
     <h2 id="step5-ci">Step 5: Wire the audit into your CI/CD pipeline</h2>
     <p>Local audits are a safety net; CI enforcement is the gate. Add these checks to your workflow so no deployment bypasses them.</p>
@@ -335,6 +336,7 @@ fi</code></pre>
       <a href="../about.html">How it works</a>
       <a href="fix-npm-audit-vulnerabilities.html">Fix guide</a>
       <a href="audit-npm-packages-security.html">Audit guide</a>
+      <a href="npm-typosquatting-how-to-detect.html">Typosquatting</a>
       <a href="https://labs.copperbaytech.com/shipsafe/" target="_blank" rel="noopener noreferrer">ShipSafe</a>
       <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">LeakCheck</a>
       <a href="https://labs.copperbaytech.com/exposurecheck/" target="_blank" rel="noopener noreferrer">ExposureCheck</a>
