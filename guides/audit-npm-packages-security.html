@@ -252,6 +252,7 @@ fi</code></pre>
       <li>CI runs <code class="inline">npm ci</code> (not <code class="inline">npm install</code>) and <code class="inline">npm audit --audit-level=high</code> on every push to main</li>
       <li>A weekly scheduled audit cron is active in CI</li>
       <li><code class="inline">package-lock.json</code> committed and up to date in the repo</li>
+      <li>Scan your own source files and config files for hardcoded API keys &mdash; dependency scanning only covers third-party packages, not secrets embedded in your own code. Paste any config file, <code class="inline">.env</code> template, or build output into <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">LeakCheck</a> to check for exposed credentials before deploy.</li>
     </ul>
 
     <p style="margin:24px 0 8px"><a class="btn primary" href="../">Run the DepCheck scan &rarr;</a></p>
