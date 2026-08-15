@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>npm License Compliance: Which Open-Source Licenses Are Safe for Commercial Projects</title>
+<meta name="description" content="MIT, Apache, GPL, AGPL, LGPL — which npm package licenses are safe for commercial use? A practical guide to checking every dependency's license, understanding copyleft obligations, and what to do when you find a risky one.">
+<link rel="canonical" href="https://labs.copperbaytech.com/depcheck/guides/npm-license-compliance.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="DepCheck">
+<meta property="og:title" content="npm License Compliance: Which Open-Source Licenses Are Safe for Commercial Projects">
+<meta property="og:description" content="MIT, Apache, GPL, AGPL — which npm package licenses are safe for commercial use? A practical guide to checking all your dependencies and what to do when you find a risky one.">
+<meta property="og:url" content="https://labs.copperbaytech.com/depcheck/guides/npm-license-compliance.html">
+<meta property="og:image" content="https://labs.copperbaytech.com/depcheck/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#faf8f4">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle","headline":"npm License Compliance: Which Open-Source Licenses Are Safe for Commercial Projects","description":"A practical guide to npm license compliance: understanding permissive vs. copyleft licenses, why AGPL is the biggest risk for web apps, how to audit direct and transitive dependencies with DepCheck and license-checker, and what to do when you find a risky license.","author":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"},"publisher":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"},"datePublished":"2026-08-15","dateModified":"2026-08-15","mainEntityOfPage":"https://labs.copperbaytech.com/depcheck/guides/npm-license-compliance.html","mainEntity":{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Does npm audit check for license issues?","acceptedAnswer":{"@type":"Answer","text":"No. npm audit only checks your dependency tree against the npm advisory database for published security vulnerabilities (CVEs). It has no knowledge of license types. A package carrying an AGPL-3.0 or GPL-2.0 license will pass npm audit with no warnings, regardless of whether those licenses are compatible with your project's commercial model."}},{"@type":"Question","name":"What is the difference between AGPL and GPL for a web application?","acceptedAnswer":{"@type":"Answer","text":"GPL's copyleft obligations are triggered by 'distribution' — physically shipping software to users. Running a GPL-licensed web app on your server for users to access via a browser is generally not considered distribution, so the copyleft does not activate. AGPL closes this gap: AGPL adds a 'network use' clause that triggers copyleft when you run the software to provide a service over a network, even without distributing binaries. For virtually any web app, AGPL means you must release your entire application source code under AGPL if you use even one AGPL-licensed dependency."}},{"@type":"Question","name":"Does bundling an LGPL package with webpack or Vite trigger copyleft?","acceptedAnswer":{"@type":"Answer","text":"This is a legally unsettled area. The LGPL was designed to allow linking against a library without triggering copyleft, specifically for dynamically linked libraries. JavaScript bundlers (webpack, Rollup, Vite, esbuild) typically inline the LGPL library's code into your output bundle — a form of static linking. Many legal teams treat this as triggering LGPL copyleft obligations, meaning you would need to release your modifications to the LGPL library (but not your entire application). If in doubt, find a permissively-licensed alternative or consult a lawyer with open-source experience."}},{"@type":"Question","name":"Can I use an AGPL package in an internal tool that is not public-facing?","acceptedAnswer":{"@type":"Answer","text":"Possibly. AGPL's network-use clause triggers when you run the software to provide a service to users other than yourself. An internal tool used only by employees of your own organization, accessible only on your internal network, is generally not considered providing a service to external users. However, 'internal' is not a blanket exception: if external contractors or partners access the tool, if it's SaaS sold to customers, or if the boundary is ambiguous, AGPL's obligations likely apply. Get legal advice for high-stakes situations."}},{"@type":"Question","name":"What does 'SEE LICENSE IN LICENSE.md' mean in package.json?","acceptedAnswer":{"@type":"Answer","text":"It means the license is specified in a file inside the package tarball, rather than as an SPDX identifier string. This often appears when a project uses a custom license, a dual license, or a license with conditions that don't fit a standard SPDX tag. You need to read that file before assuming the package is permissive. Download the package with 'npm pack package-name', extract the tarball, and open the LICENSE file."}},{"@type":"Question","name":"Is a package with no license field in package.json safe to use?","acceptedAnswer":{"@type":"Answer","text":"No. A missing license field legally means 'all rights reserved' — you have no permission to use, copy, modify, or distribute the package. In practice, many small packages omit the license field by accident and the author intended permissive use, but you cannot rely on assumed intent. For any production dependency with no license, contact the author to confirm, or find a licensed alternative."}},{"@type":"Question","name":"How do I check the licenses of all transitive dependencies, not just direct ones?","acceptedAnswer":{"@type":"Answer","text":"Run 'npx license-checker --production' in your project root after installing dependencies. This walks the full node_modules tree and prints every package name, version, and license — including all transitive dependencies. Pipe the output to --json for machine-readable output, or use --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC' to fail the command if any package falls outside your approved list."}}]}}
+</script>
+<link rel="stylesheet" href="../styles.css?v=1">
+<style>
+  .doc .lede{font-size:clamp(17px,2.3vw,20px);color:var(--muted)}
+  .doc h2{scroll-margin-top:80px}
+  .doc h3{font-family:"Fraunces",Georgia,serif;font-weight:600;font-size:19px;margin:22px 0 6px;letter-spacing:-.01em}
+  .toc{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 6px;padding:0;list-style:none}
+  .toc a{display:inline-block;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:14px;font-weight:600;color:var(--muted)}
+  .toc a:hover{border-color:var(--bay);color:var(--ink);text-decoration:none}
+  .callout.warn-callout{background:var(--fail-bg);border-left-color:var(--fail);color:#5e2019}
+  .callout.tip-callout{background:var(--pass-bg);border-left-color:var(--pass);color:#1b4d30}
+  .callout.info-callout{background:var(--surface);border-left-color:var(--bay);color:var(--ink)}
+  pre{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;margin:12px 0}
+  pre code{background:none;padding:0;font-size:inherit}
+  .doc code.inline{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background:var(--line-2);padding:2px 6px;border-radius:5px}
+  .license-table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}
+  .license-table th{text-align:left;padding:10px 12px;background:var(--surface);border-bottom:2px solid var(--line);font-weight:600}
+  .license-table td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  .license-table tr:last-child td{border-bottom:none}
+  .safe{color:#186235;font-weight:700}
+  .warn{color:#7d4a00;font-weight:700}
+  .risky{color:#8b1a0a;font-weight:700}
+  .steps{margin:18px 0;padding-left:0;list-style:none;counter-reset:step}
+  .steps>li{position:relative;padding:4px 0 20px 46px;counter-increment:step}
+  .steps>li::before{content:counter(step);position:absolute;left:0;top:2px;width:30px;height:30px;border-radius:50%;background:var(--copper);color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center;font-family:"Fraunces",serif}
+  .steps>li strong{display:block;margin-bottom:4px}
+  .suite{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:18px 0 6px}
+  .suite a{display:block;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);transition:box-shadow .15s,transform .15s,border-color .15s}
+  .suite a:hover{text-decoration:none;box-shadow:var(--shadow-lift);transform:translateY(-2px);border-color:var(--line-2)}
+  .suite .s-name{font-family:"Fraunces",serif;font-weight:600;font-size:17px;color:var(--ink);display:block;margin:0 0 4px}
+  .suite p{color:var(--muted);font-size:14px;margin:0}
+  .suite .s-tag{display:inline-block;margin-bottom:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--bay);background:var(--bay-tint,#e8f4f6);border:1px solid #cfe1e3;border-radius:6px;padding:2px 8px}
+  .faq-section{margin:18px 0}
+  .faq-section details{border-bottom:1px solid var(--line);padding:14px 0}
+  .faq-section details:first-child{border-top:1px solid var(--line)}
+  .faq-section summary{font-weight:600;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .faq-section summary::-webkit-details-marker{display:none}
+  .faq-section summary::after{content:"+";font-size:20px;color:var(--muted);flex-shrink:0}
+  .faq-section details[open] summary::after{content:"\2212"}
+  .faq-section details p,.faq-section details ul{margin:12px 0 4px;color:var(--muted)}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to main content</a>
+
+<header class="masthead" role="banner">
+  <div class="wrap hdr-bar">
+    <a class="brand" href="../" aria-label="DepCheck — go to homepage">
+      <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+        <path d="M10 16 30 26 30 48 10 38 Z" fill="#14181f"/>
+        <path d="M50 16 30 26 30 48 50 38 Z" fill="#1d222b"/>
+        <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+        <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="wordmark">DepCheck</span>
+    </a>
+    <nav class="nav" aria-label="Primary navigation">
+      <a href="../about.html">How it works</a>
+      <a href="fix-npm-audit-vulnerabilities.html">Fix guides</a>
+      <a href="audit-npm-packages-security.html">Audit guide</a>
+      <a href="npm-typosquatting-how-to-detect.html">Typosquatting</a>
+      <a href="npm-license-compliance.html" aria-current="page">Licenses</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<article class="doc">
+  <div class="wrap narrow">
+    <p class="eyebrow" style="text-align:left">License compliance guide</p>
+    <h1>npm package license compliance: which open-source licenses are safe for commercial use</h1>
+    <p class="lede"><code class="inline">npm audit</code> checks for CVEs. It checks nothing about licenses. An <code class="inline">npm install</code> that pulls in a single AGPL-licensed package can legally require you to open-source your entire application. Here is how to find every license in your dependency tree — and what to do when you find a risky one.</p>
+
+    <ul class="toc" aria-label="On this page">
+      <li><a href="#why-different">Why license risk is different</a></li>
+      <li><a href="#landscape">The npm license landscape</a></li>
+      <li><a href="#agpl">The AGPL blind spot</a></li>
+      <li><a href="#how-to-check">How to check all your licenses</a></li>
+      <li><a href="#transitive">Transitive dependencies</a></li>
+      <li><a href="#what-to-do">What to do with a risky license</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+
+    <h2 id="why-different">Why license compliance is a separate audit from CVE scanning</h2>
+    <p>A CVE is a bug — someone will publish a patch, you upgrade, the risk closes. A license is a permanent legal condition of the package. No advisory database tracks it. No future release fixes it. And unlike a security vulnerability, you can ship for years before the obligation surfaces — often during an acquisition due diligence, a customer security review, or a cease-and-desist from the package author.</p>
+
+    <p>The npm registry contains packages under hundreds of different licenses. The vast majority use permissive licenses (MIT, Apache-2.0) that impose almost no obligations. A small minority use copyleft licenses that, under the right conditions, require you to publish your application's source code under those same terms. The consequence of missing one is not a vulnerability score — it is a legal obligation you may have already violated.</p>
+
+    <h2 id="landscape">The npm license landscape</h2>
+    <p>There are three categories. The table below covers the licenses you are most likely to encounter:</p>
+
+    <table class="license-table">
+      <thead>
+        <tr>
+          <th>License</th>
+          <th>Type</th>
+          <th>Commercial use</th>
+          <th>Key obligation</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>MIT, ISC, BSD-2-Clause, BSD-3-Clause</td>
+          <td>Permissive</td>
+          <td class="safe">✓ Safe</td>
+          <td>Include the license text in distributions</td>
+        </tr>
+        <tr>
+          <td>Apache-2.0</td>
+          <td>Permissive</td>
+          <td class="safe">✓ Safe</td>
+          <td>Preserve NOTICE file; includes explicit patent grant</td>
+        </tr>
+        <tr>
+          <td>CC0-1.0, Unlicense</td>
+          <td>Public domain</td>
+          <td class="safe">✓ Safe</td>
+          <td>None</td>
+        </tr>
+        <tr>
+          <td>LGPL-2.1, LGPL-3.0</td>
+          <td>Weak copyleft</td>
+          <td class="warn">⚠ Use with care</td>
+          <td>Modifications to the library must be open-sourced; dynamic linking is usually safe, but JavaScript bundling blurs this line</td>
+        </tr>
+        <tr>
+          <td>GPL-2.0, GPL-3.0</td>
+          <td>Strong copyleft</td>
+          <td class="risky">✗ Risky</td>
+          <td>Distributing software that links GPL code requires distributing your app under GPL too</td>
+        </tr>
+        <tr>
+          <td>AGPL-3.0</td>
+          <td>Network copyleft</td>
+          <td class="risky">✗ Risky for web apps</td>
+          <td>Running AGPL code as a network service requires making your entire app's source available under AGPL</td>
+        </tr>
+        <tr>
+          <td>SSPL-1.0</td>
+          <td>Commercial-open-source</td>
+          <td class="risky">✗ Risky</td>
+          <td>Requires open-sourcing the full service infrastructure around the software; not OSI-approved</td>
+        </tr>
+        <tr>
+          <td>EUPL-1.2</td>
+          <td>Copyleft</td>
+          <td class="warn">⚠ Review required</td>
+          <td>Copyleft similar to LGPL; commonly used in EU public sector packages</td>
+        </tr>
+        <tr>
+          <td>Unlicensed / no license field</td>
+          <td>All rights reserved</td>
+          <td class="risky">✗ No rights granted</td>
+          <td>You have no permission to use the package at all without contacting the author</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2 id="agpl">The AGPL blind spot — especially for AI/ML projects</h2>
+    <p>The GPL's copyleft triggers when you <em>distribute</em> software — shipping a binary to end users. Running a GPL web app on your server is generally not distribution, so the GPL's obligations do not activate for a server-side web application. AGPL closes this gap with a single additional clause: if you run the software to provide a service over a network, users of that service are entitled to the source code.</p>
+
+    <p>For a web app — including APIs, SaaS dashboards, and any backend service with external users — AGPL means: if you use even one AGPL-licensed npm package, you must make your entire application's source code available to users under the AGPL license.</p>
+
+    <div class="callout warn-callout">
+      <strong>The AI/ML angle:</strong> Many AI and machine learning libraries in the npm ecosystem use AGPL-3.0. If you are building with LLM client libraries, model-serving wrappers, or AI SDK packages, check each one's license carefully. The vibe-coding workflow of <code style="color:inherit">npm install</code>-ing AI packages without reading their licenses is exactly how AGPL exposure enters a commercial project without notice.
+    </div>
+
+    <p>AGPL also affects companies beyond startups. During M&amp;A due diligence, AGPL in a target company's dependency tree is a common deal complication — buyers must either obtain a commercial license from the package author (if one is available) or remove the dependency before closing.</p>
+
+    <h2 id="how-to-check">How to check all your npm package licenses</h2>
+    <p>Three methods, graduated by coverage:</p>
+
+    <ol class="steps">
+      <li>
+        <strong>Quick sweep of direct dependencies — paste into DepCheck</strong>
+        <p>Paste your <code class="inline">package.json</code> into <a href="../">DepCheck</a>. Any copyleft-licensed package in your direct dependencies is flagged with severity and license name. No install required — runs in your browser, only package names and versions are looked up.</p>
+        <p style="margin:12px 0 0"><a class="btn primary" href="../">Scan your package.json &rarr;</a></p>
+      </li>
+      <li>
+        <strong>Check a single package</strong>
+        <p>For a quick spot-check on a specific dependency before installing:</p>
+        <pre><code># Show the license field from the registry
+npm info package-name license
+
+# For more detail: download the tarball and read the LICENSE file
+npm pack package-name
+tar -tzf package-name-1.0.0.tgz | grep -i license</code></pre>
+        <p>Note: the <code class="inline">license</code> field in <code class="inline">package.json</code> is self-reported by the author. It can be wrong, outdated, or missing. Always confirm against the LICENSE file in the tarball for any high-stakes decision.</p>
+      </li>
+      <li>
+        <strong>Full transitive audit with license-checker</strong>
+        <p>Direct dependencies are just the start. Every transitive dependency (a dependency of a dependency) carries its own license, and those obligations apply to you too. Use <code class="inline">license-checker</code> to walk your entire <code class="inline">node_modules</code> tree:</p>
+        <pre><code># Install once
+npm install -g license-checker
+
+# List all licenses (production deps only — omit --production to include devDependencies)
+license-checker --production
+
+# JSON output
+license-checker --production --json > licenses.json
+
+# Fail if any package falls outside your approved list
+license-checker --production \
+  --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;Unlicense'</code></pre>
+        <p>Run this after every <code class="inline">npm install</code> or dependency update. Add it as a step in your CI pipeline so a new transitive dependency with a risky license fails the build before it reaches production.</p>
+      </li>
+    </ol>
+
+    <h2 id="transitive">Transitive dependencies: the hidden problem</h2>
+    <p>Your <code class="inline">package.json</code> might contain only MIT-licensed direct dependencies. But each of those packages has its own dependencies. A single AGPL package three levels deep in your dependency tree carries the same obligations as one you installed directly — you are running the code regardless of where <code class="inline">npm install</code> found it.</p>
+
+    <p>A real example of how this happens: a popular utility package (MIT) adds a new optional feature in a minor release. The feature depends on a visualization library (AGPL). Your lockfile updates on your next <code class="inline">npm install</code>, and a new AGPL package is now part of your production bundle without a single change to your own <code class="inline">package.json</code>.</p>
+
+    <div class="callout tip-callout">
+      <strong>Tip:</strong> Commit your <code class="inline">package-lock.json</code> and run <code class="inline">license-checker --production</code> in CI on every pull request. A new dependency in the lockfile without a passing license check is a build failure — catching this at PR time is far cheaper than during a compliance review.
+    </div>
+
+    <h2 id="what-to-do">What to do when you find a risky license</h2>
+    <p>You have four options, roughly in order of preference:</p>
+
+    <ol class="steps">
+      <li>
+        <strong>Find a permissively-licensed alternative</strong>
+        <p>Search npmjs.com for packages that solve the same problem. Many popular AGPL or GPL packages have MIT-licensed alternatives with comparable APIs — the ecosystem is large. Check weekly download counts and open issue velocity to assess maintenance health before switching.</p>
+      </li>
+      <li>
+        <strong>Buy a commercial license</strong>
+        <p>Many packages that use AGPL (or SSPL) for their open-source release also offer a commercial license that removes the copyleft obligation. This is the dual-licensing model — common in infrastructure software and increasingly in AI tooling. Contact the package author or check their website for commercial licensing options.</p>
+      </li>
+      <li>
+        <strong>Isolate via a service boundary</strong>
+        <p>If you run the AGPL code as a completely separate microservice — a standalone process with its own deployment, communicating only through a well-defined API — you may be able to contain the copyleft to that service's code alone, rather than your entire application. This is architecturally complex and legally uncertain; treat it as a last resort and get legal advice before relying on it.</p>
+      </li>
+      <li>
+        <strong>Open-source under the copyleft license</strong>
+        <p>If the package is genuinely the right tool and no commercial license exists, you can release your application under AGPL (or the relevant copyleft license). For internal tools, open-source developer tooling, or projects where the code is not a competitive secret, this is sometimes the cleanest path.</p>
+      </li>
+    </ol>
+
+    <p>For packages with <strong>no license field at all</strong>: contact the author and ask them to add a license (most will add MIT if asked). If the package is a transitive dependency, open an issue on the upstream package that pulled it in, or switch to an alternative that uses a fully-licensed dependency chain.</p>
+
+    <p style="margin:24px 0 8px"><a class="btn primary" href="../">Scan your package.json for license risk &rarr;</a></p>
+
+    <h2 id="faq">Frequently asked questions</h2>
+    <div class="faq-section">
+      <details open>
+        <summary>Does npm audit check for license issues?</summary>
+        <p>No. <code class="inline">npm audit</code> only checks your dependency tree against the npm advisory database for published security vulnerabilities (CVEs). It has no knowledge of license types. A package carrying AGPL-3.0 or GPL-2.0 will pass <code class="inline">npm audit</code> with no warnings, regardless of whether those licenses are compatible with your project's commercial model. <a href="audit-npm-packages-security.html">See the full pre-deploy audit guide</a> for everything else <code class="inline">npm audit</code> misses.</p>
+      </details>
+      <details>
+        <summary>What is the difference between AGPL and GPL for a web application?</summary>
+        <p>GPL's copyleft is triggered by <em>distribution</em> — physically shipping software to users. Running a GPL web app on your server for users to access via a browser is generally not considered distribution, so the copyleft does not activate for a purely server-side application. AGPL closes this gap: it adds a "network use" clause that triggers copyleft when you run the software to provide a service over a network, even without distributing binaries. For virtually any web app, AGPL means you must release your entire application source code under AGPL if you use even one AGPL-licensed dependency.</p>
+      </details>
+      <details>
+        <summary>Does bundling an LGPL package with webpack or Vite trigger copyleft?</summary>
+        <p>This is legally unsettled. The LGPL was designed to allow <em>dynamic</em> linking against a library without triggering copyleft. JavaScript bundlers (webpack, Rollup, Vite, esbuild) typically inline the library's code into your output bundle — a form of static linking. Many legal teams treat bundled LGPL as triggering copyleft obligations on the library's code (requiring you to open-source modifications to the LGPL library, but not your entire application). Others disagree. If in doubt, prefer a permissively-licensed alternative or get legal advice.</p>
+      </details>
+      <details>
+        <summary>Can I use an AGPL package for an internal tool that is not public-facing?</summary>
+        <p>Possibly. AGPL's network-use clause triggers when you run the software to provide a service to users <em>other than yourself</em>. A tool used only by employees of your own organization on your internal network is generally not considered providing a service to external users. However, if external contractors access it, if it's sold as SaaS, or if the boundary is ambiguous, AGPL likely applies. Get legal advice before relying on the "internal only" exception for high-stakes cases.</p>
+      </details>
+      <details>
+        <summary>What does "SEE LICENSE IN LICENSE.md" mean in package.json?</summary>
+        <p>It means the license is in a file inside the package tarball rather than expressed as an SPDX identifier string. This appears when a project uses a custom license, a dual license, or a license with conditions that don't fit a standard SPDX tag. You need to read that file before assuming the package is permissive. Download the package with <code class="inline">npm pack package-name</code>, extract the tarball, and open the LICENSE file to read the actual terms.</p>
+      </details>
+      <details>
+        <summary>Is a package with no license field in package.json safe to use?</summary>
+        <p>No — not without confirming with the author. A missing license field legally means "all rights reserved." You have no permission to use, copy, modify, or distribute the package. In practice, many small packages omit the license field accidentally and the author intended permissive use, but you cannot rely on assumed intent. For any production dependency with no license, contact the author and ask them to add one, or find a licensed alternative.</p>
+      </details>
+      <details>
+        <summary>How do I check the licenses of all transitive dependencies, not just direct ones?</summary>
+        <p>Run <code class="inline">npx license-checker --production</code> in your project root after installing dependencies. This walks the full <code class="inline">node_modules</code> tree and prints every package name, version, and license — including transitive dependencies. Use <code class="inline">--onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC'</code> to fail the command if any package falls outside your approved list, making it suitable as a CI gate.</p>
+      </details>
+    </div>
+
+    <h2 style="margin-top:48px">Also in the Copper Bay Labs ship-safety suite</h2>
+    <p>License risk is one layer of your pre-ship checklist. These free tools cover the rest:</p>
+    <div class="suite">
+      <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">Secret scanning</span>
+        <span class="s-name">LeakCheck</span>
+        <p>Paste code or a config file and see exposed API keys and secrets flagged before they reach the repo.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/exposurecheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">Post-deploy</span>
+        <span class="s-name">ExposureCheck</span>
+        <p>Scan your live URL for exposed <code class="inline">.env</code> files, <code class="inline">.git</code> directories, source maps, and bundled secrets.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/hardencheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">HTTP hardening</span>
+        <span class="s-name">HardenCheck</span>
+        <p>Check your security headers — CSP, HSTS, X-Frame-Options — so your site is not an exfiltration vector.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/shipsafe/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">ADA / WCAG risk</span>
+        <span class="s-name">ShipSafe</span>
+        <p>Scan your site for accessibility failures that create ADA lawsuit risk before you launch.</p>
+      </a>
+    </div>
+  </div>
+</article>
+</main>
+
+<footer class="footer" role="contentinfo">
+  <div class="wrap foot">
+    <div>
+      <a class="brand small" href="../" aria-label="DepCheck — homepage">
+        <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+          <path d="M10 16 30 26 30 48 10 38 Z" fill="#cbd2da"/>
+          <path d="M50 16 30 26 30 48 50 38 Z" fill="#aeb6c0"/>
+          <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+          <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="wordmark">DepCheck</span>
+      </a>
+      <p class="fine">Heuristic dependency checks, not a security guarantee.</p>
+    </div>
+    <nav class="foot-nav" aria-label="Footer navigation">
+      <a href="../about.html">How it works</a>
+      <a href="fix-npm-audit-vulnerabilities.html">Fix guide</a>
+      <a href="audit-npm-packages-security.html">Audit guide</a>
+      <a href="npm-typosquatting-how-to-detect.html">Typosquatting</a>
+      <a href="npm-license-compliance.html">License guide</a>
+      <a href="https://labs.copperbaytech.com/shipsafe/" target="_blank" rel="noopener noreferrer">ShipSafe</a>
+      <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">LeakCheck</a>
+      <a href="https://labs.copperbaytech.com/exposurecheck/" target="_blank" rel="noopener noreferrer">ExposureCheck</a>
+      <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Secure my project &rarr;</a>
+    </nav>
+  </div>
+  <div class="wrap">
+    <p class="madeby">A <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Copper Bay Labs</a> product.</p>
+  </div>
+</footer>
+</body>
+</html>
