@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Audit a Node.js Docker Image for npm Vulnerabilities</title>
+<meta name="description" content="npm vulnerabilities don't disappear when you containerize. This guide covers how to run npm audit inside a Docker build, scan the final image with Trivy and Docker Scout, avoid the multi-stage build trap, and catch risky packages before they ship in your container.">
+<link rel="canonical" href="https://labs.copperbaytech.com/depcheck/guides/audit-node-docker-vulnerabilities.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="DepCheck">
+<meta property="og:title" content="How to Audit a Node.js Docker Image for npm Vulnerabilities">
+<meta property="og:description" content="npm audit doesn't run automatically in a Docker build. Here is how to catch vulnerable npm packages before they ship in your container — inside the build and after.">
+<meta property="og:url" content="https://labs.copperbaytech.com/depcheck/guides/audit-node-docker-vulnerabilities.html">
+<meta property="og:image" content="https://labs.copperbaytech.com/depcheck/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#faf8f4">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle","headline":"How to Audit a Node.js Docker Image for npm Vulnerabilities","description":"A guide to auditing npm package vulnerabilities inside Node.js Docker images: running npm audit in the build, catching the devDependencies multi-stage trap, scanning the final image with Trivy and Docker Scout, and wiring it all into GitHub Actions CI.","author":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"},"publisher":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"},"datePublished":"2026-09-03","dateModified":"2026-09-03","mainEntityOfPage":"https://labs.copperbaytech.com/depcheck/guides/audit-node-docker-vulnerabilities.html","mainEntity":{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Does Docker automatically run npm audit when building an image?","acceptedAnswer":{"@type":"Answer","text":"No. Docker executes only the RUN commands you write in your Dockerfile. Unless you explicitly add a RUN npm audit step, vulnerable npm packages will be installed into your image silently and will be running in production. You must add npm audit to your Dockerfile or your CI pipeline explicitly."}},{"@type":"Question","name":"Why do npm vulnerabilities still appear in my Docker image after npm audit fix?","acceptedAnswer":{"@type":"Answer","text":"Two common reasons: first, the Dockerfile may be re-installing packages from a lockfile that was not updated after you ran npm audit fix locally — rebuild the image after committing the updated package-lock.json. Second, some vulnerabilities require major version upgrades that npm audit fix does not apply automatically. Check the audit output for findings marked 'fix available via npm audit fix --force' and decide whether to apply them."}},{"@type":"Question","name":"What is the multi-stage build devDependencies trap in Node.js Docker images?","acceptedAnswer":{"@type":"Answer","text":"In a multi-stage Dockerfile, you typically install all dependencies in a build stage, then copy node_modules to a production stage. If you copy node_modules directly instead of running npm ci --omit=dev in the production stage, devDependencies — and all their vulnerabilities — end up in your production image. The fix is to run npm ci --omit=dev in the final stage rather than copying node_modules from the build stage."}},{"@type":"Question","name":"What does Trivy scan that npm audit does not?","acceptedAnswer":{"@type":"Answer","text":"Trivy scans both the operating system packages (apt/apk packages in your base image) and the npm packages in node_modules. npm audit only scans npm packages. A Node.js Docker image built on Debian or Alpine can have vulnerabilities in OS-level packages that npm audit is completely unaware of. Trivy catches both layers in a single scan."}},{"@type":"Question","name":"Should I use node:alpine or node:slim for production Docker images?","acceptedAnswer":{"@type":"Answer","text":"node:slim (Debian minimal, glibc present) is the safer default. Alpine uses musl libc instead of glibc — most pure JavaScript packages work, but native modules compiled against glibc can fail at runtime on Alpine. node:slim is smaller than the full image, compatible with native modules, and has a smaller OS attack surface. Switch to Alpine only after confirming your specific dependency set is compatible."}},{"@type":"Question","name":"How do I scan a Docker image for npm vulnerabilities in GitHub Actions?","acceptedAnswer":{"@type":"Answer","text":"Add the aquasecurity/trivy-action step after your docker build step. Pass the built image name as image-ref and set exit-code: 1 with severity: HIGH,CRITICAL to fail the workflow on serious findings. This scans both OS packages and npm packages in the final image before it is pushed to your registry."}},{"@type":"Question","name":"Can I use npm audit inside a Docker build step?","acceptedAnswer":{"@type":"Answer","text":"Yes. Add RUN npm audit --audit-level=high after your RUN npm ci step in the Dockerfile. This runs npm audit inside the build container and fails the docker build command if any high or critical vulnerabilities are found — blocking the image from being produced at all. Combine this with an image-level scan (Trivy or Docker Scout) for full coverage of both npm and OS-layer vulnerabilities."}}]}}
+</script>
+<link rel="stylesheet" href="../styles.css?v=1">
+<style>
+  .doc .lede{font-size:clamp(17px,2.3vw,20px);color:var(--muted)}
+  .doc h2{scroll-margin-top:80px}
+  .doc h3{font-family:"Fraunces",Georgia,serif;font-weight:600;font-size:19px;margin:22px 0 6px;letter-spacing:-.01em}
+  .toc{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 6px;padding:0;list-style:none}
+  .toc a{display:inline-block;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:14px;font-weight:600;color:var(--muted)}
+  .toc a:hover{border-color:var(--bay);color:var(--ink);text-decoration:none}
+  .callout.warn-callout{background:var(--fail-bg);border-left-color:var(--fail);color:#5e2019}
+  .callout.tip-callout{background:var(--pass-bg);border-left-color:var(--pass);color:#1b4d30}
+  pre{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;margin:12px 0}
+  pre code{background:none;padding:0;font-size:inherit}
+  .doc code.inline{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background:var(--line-2);padding:2px 6px;border-radius:5px}
+  .coverage-table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}
+  .coverage-table th{text-align:left;padding:10px 12px;background:var(--surface);border-bottom:2px solid var(--line);font-weight:600}
+  .coverage-table td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  .coverage-table tr:last-child td{border-bottom:none}
+  .steps{margin:18px 0;padding-left:0;list-style:none;counter-reset:step}
+  .steps>li{position:relative;padding:4px 0 20px 46px;counter-increment:step}
+  .steps>li::before{content:counter(step);position:absolute;left:0;top:2px;width:30px;height:30px;border-radius:50%;background:var(--copper);color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center;font-family:"Fraunces",serif}
+  .steps>li strong{display:block;margin-bottom:4px}
+  .suite{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:18px 0 6px}
+  .suite a{display:block;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);transition:box-shadow .15s,transform .15s,border-color .15s}
+  .suite a:hover{text-decoration:none;box-shadow:var(--shadow-lift);transform:translateY(-2px);border-color:var(--line-2)}
+  .suite .s-name{font-family:"Fraunces",serif;font-weight:600;font-size:17px;color:var(--ink);display:block;margin:0 0 4px}
+  .suite p{color:var(--muted);font-size:14px;margin:0}
+  .suite .s-tag{display:inline-block;margin-bottom:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--bay);background:var(--bay-tint,#e8f4f6);border:1px solid #cfe1e3;border-radius:6px;padding:2px 8px}
+  .faq-section{margin:18px 0}
+  .faq-section details{border-bottom:1px solid var(--line);padding:14px 0}
+  .faq-section details:first-child{border-top:1px solid var(--line)}
+  .faq-section summary{font-weight:600;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .faq-section summary::-webkit-details-marker{display:none}
+  .faq-section summary::after{content:"+";font-size:20px;color:var(--muted);flex-shrink:0}
+  .faq-section details[open] summary::after{content:"\2212"}
+  .faq-section details p,.faq-section details ul{margin:12px 0 4px;color:var(--muted)}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to main content</a>
+
+<header class="masthead" role="banner">
+  <div class="wrap hdr-bar">
+    <a class="brand" href="../" aria-label="DepCheck — go to homepage">
+      <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+        <path d="M10 16 30 26 30 48 10 38 Z" fill="#14181f"/>
+        <path d="M50 16 30 26 30 48 50 38 Z" fill="#1d222b"/>
+        <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+        <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="wordmark">DepCheck</span>
+    </a>
+    <nav class="nav" aria-label="Primary navigation">
+      <a href="../about.html">How it works</a>
+      <a href="fix-npm-audit-vulnerabilities.html">Fix guides</a>
+      <a href="audit-npm-packages-security.html">Audit guide</a>
+      <a href="npm-typosquatting-how-to-detect.html">Typosquatting</a>
+      <a href="npm-license-compliance.html">Licenses</a>
+      <a href="audit-node-docker-vulnerabilities.html" aria-current="page">Docker</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<article class="doc">
+  <div class="wrap narrow">
+    <p class="eyebrow" style="text-align:left">Docker security guide</p>
+    <h1>How to audit a Node.js Docker image for npm vulnerabilities</h1>
+    <p class="lede">Containerizing a Node.js app doesn&rsquo;t make its npm vulnerabilities disappear &mdash; it ships them as a reproducible artifact. <code class="inline">npm audit</code> doesn&rsquo;t run automatically when you <code class="inline">docker build</code>, and a plain build will silently package every vulnerable dependency into your production container. This guide covers how to catch them before they ship.</p>
+
+    <ul class="toc" aria-label="On this page">
+      <li><a href="#two-surfaces">Two vulnerability surfaces</a></li>
+      <li><a href="#npm-audit-in-dockerfile">npm audit in the Dockerfile</a></li>
+      <li><a href="#multistage-trap">The multi-stage build trap</a></li>
+      <li><a href="#trivy">Image scanning with Trivy</a></li>
+      <li><a href="#docker-scout">Docker Scout</a></li>
+      <li><a href="#github-actions">GitHub Actions workflow</a></li>
+      <li><a href="#base-image">Base image choice</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+
+    <h2 id="two-surfaces">Two vulnerability surfaces in a Node.js Docker image</h2>
+    <p>A Node.js container has vulnerabilities in two distinct layers, and they require different tools to find:</p>
+
+    <table class="coverage-table">
+      <thead><tr><th>Layer</th><th>What it contains</th><th>Tool to scan it</th></tr></thead>
+      <tbody>
+        <tr><td><strong>npm packages</strong> (<code class="inline">node_modules</code>)</td><td>Your application&rsquo;s direct and transitive npm dependencies</td><td><code class="inline">npm audit</code>, Trivy, Docker Scout</td></tr>
+        <tr><td><strong>OS packages</strong> (apt/apk)</td><td>System libraries in the base image &mdash; OpenSSL, glibc, zlib, curl, and others</td><td>Trivy, Docker Scout</td></tr>
+      </tbody>
+    </table>
+
+    <p><code class="inline">npm audit</code> only knows about npm packages. OS-layer vulnerabilities &mdash; such as a CVE in the version of OpenSSL bundled in your base image &mdash; are completely outside its scope. This is why image-level scanning is a necessary second step even after <code class="inline">npm audit</code> passes.</p>
+
+    <h2 id="npm-audit-in-dockerfile">Add npm audit to your Dockerfile build</h2>
+    <p>The simplest way to catch vulnerable npm packages at build time is to add an explicit <code class="inline">RUN npm audit</code> step immediately after installing dependencies. If the audit finds high or critical findings, the build fails &mdash; no image is produced, and nothing ships.</p>
+
+    <pre><code>FROM node:20-slim AS builder
+
+WORKDIR /app
+
+# Copy manifests first (layer cache optimization)
+COPY package.json package-lock.json ./
+
+# Install exact lockfile versions
+RUN npm ci
+
+# Fail the build if high or critical vulnerabilities are present
+RUN npm audit --audit-level=high
+
+# Copy source and build
+COPY . .
+RUN npm run build</code></pre>
+
+    <div class="callout tip-callout">
+      <strong>Use <code style="color:inherit">npm ci</code>, not <code style="color:inherit">npm install</code>.</strong> <code class="inline">npm ci</code> installs exactly what is in your <code class="inline">package-lock.json</code> &mdash; no version resolution, no surprises. <code class="inline">npm install</code> can silently update transitive dependencies at build time, meaning your Docker build may produce a different dependency tree than what you tested locally.
+    </div>
+
+    <p>The <code class="inline">--audit-level=high</code> flag causes the step to exit non-zero (failing the build) only for high and critical findings. Low and moderate findings appear in the build log but do not block. Adjust to <code class="inline">--audit-level=critical</code> to be more permissive, or <code class="inline">--audit-level=moderate</code> to be stricter.</p>
+
+    <div class="callout warn-callout">
+      <strong>npm audit checks the lockfile, not the running image.</strong> If your Dockerfile&rsquo;s <code style="color:inherit">npm ci</code> reads a stale <code style="color:inherit">package-lock.json</code> that was not regenerated after <code style="color:inherit">npm audit fix</code> locally, you may get a clean audit inside the build and still ship vulnerable packages. Always commit the updated lockfile and rebuild the image after fixing.
+    </div>
+
+    <h2 id="multistage-trap">The multi-stage build devDependencies trap</h2>
+    <p>Multi-stage builds are the recommended pattern for production Node.js images &mdash; compile or bundle in a build stage and copy only the runtime artifacts to a final stage. But there is a common mistake that pulls devDependencies into the production image anyway.</p>
+
+    <h3>The wrong way</h3>
+    <pre><code>FROM node:20-slim AS builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci   # installs ALL deps including devDependencies
+COPY . .
+RUN npm run build
+
+FROM node:20-slim
+WORKDIR /app
+COPY --from=builder /app/node_modules ./node_modules  # copies devDeps too
+COPY --from=builder /app/dist ./dist
+CMD ["node", "dist/server.js"]</code></pre>
+
+    <p>Copying the entire <code class="inline">node_modules</code> from the build stage pulls in TypeScript, Jest, ESLint, Vite, and all their transitive dependencies into the production container. Dev tools update less carefully than production libraries and frequently carry vulnerabilities.</p>
+
+    <h3>The right way</h3>
+    <pre><code>FROM node:20-slim AS builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM node:20-slim
+WORKDIR /app
+COPY package.json package-lock.json ./
+# Install only production dependencies in the final image
+RUN npm ci --omit=dev
+RUN npm audit --audit-level=high
+COPY --from=builder /app/dist ./dist
+CMD ["node", "dist/server.js"]</code></pre>
+
+    <p>Running <code class="inline">npm ci --omit=dev</code> in the production stage installs only the packages under <code class="inline">"dependencies"</code> in your <code class="inline">package.json</code> &mdash; every devDependency is excluded. The <code class="inline">RUN npm audit</code> step after it verifies the production-only install is clean.</p>
+
+    <h2 id="trivy">Scan the final image with Trivy</h2>
+    <p>Trivy (from Aqua Security) is a free, open-source vulnerability scanner that inspects a Docker image after it is built &mdash; scanning both OS packages and npm packages in <code class="inline">node_modules</code>. This catches OS-layer CVEs that <code class="inline">npm audit</code> never sees.</p>
+
+    <pre><code># Install Trivy (macOS)
+brew install trivy
+
+# Install Trivy (Linux)
+curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+  | sh -s -- -b /usr/local/bin
+
+# Build your image
+docker build -t myapp:latest .
+
+# Scan it &mdash; exit 1 on high or critical findings
+trivy image --exit-code 1 --severity HIGH,CRITICAL myapp:latest</code></pre>
+
+    <p>Trivy reads the OS package manifest (Alpine&rsquo;s apk database, Debian&rsquo;s dpkg status) and the npm lockfile embedded in the image. Output groups findings by layer and severity, showing the CVE ID, affected package, version, and fixed version where one exists.</p>
+
+    <div class="callout tip-callout">
+      <strong>Scan the specific image tag you are about to push.</strong> Base images are updated frequently &mdash; <code style="color:inherit">node:20-slim</code> pulled this week may have different OS packages than the same tag pulled last month. Scanning after every <code style="color:inherit">docker build</code> (not just on a schedule) catches OS CVEs that appear between builds.
+    </div>
+
+    <h2 id="docker-scout">Docker Scout</h2>
+    <p>Docker Scout is Docker&rsquo;s built-in vulnerability scanning feature, available via the Docker CLI and Docker Desktop. It integrates directly with Docker Hub and your build output.</p>
+
+    <pre><code># Scan a local image
+docker scout cves myapp:latest
+
+# Show only high and critical
+docker scout cves --only-severity high,critical myapp:latest
+
+# Compare against the base image to see what your Dockerfile added
+docker scout compare myapp:latest --to node:20-slim</code></pre>
+
+    <p>The <code class="inline">docker scout compare</code> command isolates which vulnerabilities come from your application&rsquo;s dependencies versus which came from the base image. If a CVE is already in <code class="inline">node:20-slim</code>, the fix is to update the base image tag, not to change your Dockerfile logic.</p>
+
+    <h2 id="github-actions">GitHub Actions workflow</h2>
+    <p>Automate both npm audit (inside the build) and image scanning in CI so every push to main is checked before anything reaches your registry.</p>
+
+    <pre><code>name: Docker image security scan
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        # npm audit --audit-level=high runs inside the Dockerfile RUN step
+        run: docker build -t myapp:${{ github.sha }} .
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: myapp:${{ github.sha }}
+          exit-code: '1'
+          severity: HIGH,CRITICAL
+          format: table</code></pre>
+
+    <p>The <code class="inline">trivy-action</code> step fails the workflow if Trivy finds any high or critical vulnerabilities in either npm packages or OS packages. Combined with the <code class="inline">npm audit</code> step inside the Dockerfile, you have two gates: one that fails before the image is created, and one that scans the final artifact before it is pushed.</p>
+
+    <h2 id="base-image">Base image choice affects your OS attack surface</h2>
+    <p>The Node.js official images come in several variants. The variant you choose determines how many OS-level packages are pre-installed and therefore how many OS-layer CVEs you start with before your app adds any.</p>
+
+    <table class="coverage-table">
+      <thead><tr><th>Base image</th><th>OS</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><code class="inline">node:20</code> / <code class="inline">node:20-bookworm</code></td><td>Debian 12 (full)</td><td>Includes build tools, curl, and dev utilities. Largest OS attack surface. Avoid in production.</td></tr>
+        <tr><td><code class="inline">node:20-slim</code></td><td>Debian 12 (minimal)</td><td>Dev tools removed. glibc present &mdash; native modules work. Good default for production.</td></tr>
+        <tr><td><code class="inline">node:20-alpine</code></td><td>Alpine Linux (musl)</td><td>Smallest image, fewest OS packages. Uses musl libc &mdash; can break native modules expecting glibc. Test before adopting.</td></tr>
+      </tbody>
+    </table>
+
+    <p>When Trivy reports OS CVEs in a base image, run <code class="inline">docker pull node:20-slim</code> to fetch the latest digest and rebuild &mdash; OS package maintainers patch CVEs in updated image layers, so keeping your base image current is the primary mitigation for OS-layer findings.</p>
+
+    <p style="margin:24px 0 8px"><a class="btn primary" href="../">Check your package.json with DepCheck before you containerize &rarr;</a></p>
+    <p style="margin:0 0 24px;color:var(--muted);font-size:15px">DepCheck scans your npm dependencies for vulnerabilities, abandoned packages, typosquatting risk, and license issues before they end up baked into a Docker image &mdash; in the browser, no install required.</p>
+
+    <h2 id="faq">Frequently asked questions</h2>
+    <div class="faq-section">
+      <details open>
+        <summary>Does Docker automatically run npm audit when building an image?</summary>
+        <p>No. Docker executes only the <code class="inline">RUN</code> commands you write in your Dockerfile. Unless you explicitly add a <code class="inline">RUN npm audit</code> step, vulnerable npm packages will be installed into your image silently. Add <code class="inline">RUN npm audit --audit-level=high</code> after <code class="inline">RUN npm ci</code> to fail the build on high or critical findings.</p>
+      </details>
+      <details>
+        <summary>Why do npm vulnerabilities still appear in my image after running npm audit fix?</summary>
+        <p>The most common reason: the <code class="inline">package-lock.json</code> copied into the Docker build was not updated after you ran <code class="inline">npm audit fix</code> locally. <code class="inline">npm ci</code> installs exactly what the lockfile says &mdash; if it still references the vulnerable version, that version is installed. Commit and push the updated lockfile, then rebuild. A second reason: some findings require <code class="inline">npm audit fix --force</code> (a major version bump) that the safe fix skips.</p>
+      </details>
+      <details>
+        <summary>What is the multi-stage build devDependencies trap?</summary>
+        <p>In a multi-stage Dockerfile, a common pattern is to install all dependencies in a build stage and then <code class="inline">COPY --from=builder /app/node_modules ./node_modules</code> into the production stage. This copies every devDependency &mdash; TypeScript, Jest, bundlers &mdash; into the production container along with their vulnerabilities. Fix it by running <code class="inline">npm ci --omit=dev</code> directly in the production stage instead of copying <code class="inline">node_modules</code> from the build stage.</p>
+      </details>
+      <details>
+        <summary>What does Trivy scan that npm audit does not?</summary>
+        <p>Trivy scans both npm packages in <code class="inline">node_modules</code> and OS packages installed by apt or apk in your base image (OpenSSL, zlib, curl, and other system libraries). <code class="inline">npm audit</code> has no visibility into OS packages &mdash; a CVE in the OpenSSL version bundled with <code class="inline">node:20-slim</code> will never appear in npm audit output. Trivy catches both layers in a single scan.</p>
+      </details>
+      <details>
+        <summary>Should I use node:alpine or node:slim for production?</summary>
+        <p><code class="inline">node:slim</code> is the safer default. Alpine uses musl libc instead of glibc &mdash; most pure JavaScript packages work fine, but native modules compiled against glibc (some database drivers, image processing libraries) fail at runtime on Alpine. <code class="inline">node:slim</code> keeps glibc compatibility while removing the dev tools that inflate the full image. Switch to Alpine only after verifying your specific dependencies are compatible.</p>
+      </details>
+      <details>
+        <summary>How do I scan a Docker image for vulnerabilities in GitHub Actions?</summary>
+        <p>Use the <code class="inline">aquasecurity/trivy-action</code> after your <code class="inline">docker build</code> step. Set <code class="inline">exit-code: 1</code> and <code class="inline">severity: HIGH,CRITICAL</code> to fail the workflow on serious findings, and pass the built image tag as <code class="inline">image-ref</code>. This scans both OS packages and npm packages in the final image before any push to a registry. See the GitHub Actions example above for the complete workflow.</p>
+      </details>
+      <details>
+        <summary>Can npm audit run inside a running container instead of during the build?</summary>
+        <p>Yes &mdash; you can exec into a running container and run <code class="inline">npm audit</code> manually. But this is harder to automate and won&rsquo;t block a deployment. The recommended pattern is to scan at build time (in the Dockerfile) so a vulnerable image is never created, and scan the built image in CI (with Trivy or Docker Scout) before pushing to a registry. Both gates together mean a vulnerable image never reaches your registry in the first place.</p>
+      </details>
+    </div>
+
+    <h2 style="margin-top:48px">Also in the Copper Bay Labs ship-safety suite</h2>
+    <p>Docker vulnerability scanning is one layer of your pre-ship checklist. These free tools cover the rest:</p>
+    <div class="suite">
+      <a href="../">
+        <span class="s-tag">Dependency risk</span>
+        <span class="s-name">DepCheck</span>
+        <p>Paste your <code class="inline">package.json</code> and see vulnerable, abandoned, typosquatted, and risky-license packages flagged by severity &mdash; before they end up in your container.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">Secret scanning</span>
+        <span class="s-name">LeakCheck</span>
+        <p>Paste code or a config file and see exposed API keys and secrets before they reach the repo or a Docker build context.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/exposurecheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">Post-deploy</span>
+        <span class="s-name">ExposureCheck</span>
+        <p>Scan your live URL for exposed <code class="inline">.env</code> files, <code class="inline">.git</code> directories, source maps, and bundled secrets.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/hardencheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">HTTP hardening</span>
+        <span class="s-name">HardenCheck</span>
+        <p>Check your security headers and CSP so your containerized app isn&rsquo;t an exfiltration vector.</p>
+      </a>
+    </div>
+  </div>
+</article>
+</main>
+
+<footer class="footer" role="contentinfo">
+  <div class="wrap foot">
+    <div>
+      <a class="brand small" href="../" aria-label="DepCheck &mdash; homepage">
+        <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+          <path d="M10 16 30 26 30 48 10 38 Z" fill="#cbd2da"/>
+          <path d="M50 16 30 26 30 48 50 38 Z" fill="#aeb6c0"/>
+          <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+          <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="wordmark">DepCheck</span>
+      </a>
+      <p class="fine">Heuristic dependency checks, not a security guarantee.</p>
+    </div>
+    <nav class="foot-nav" aria-label="Footer navigation">
+      <a href="../about.html">How it works</a>
+      <a href="fix-npm-audit-vulnerabilities.html">Fix guide</a>
+      <a href="audit-npm-packages-security.html">Audit guide</a>
+      <a href="npm-typosquatting-how-to-detect.html">Typosquatting</a>
+      <a href="npm-license-compliance.html">License guide</a>
+      <a href="audit-node-docker-vulnerabilities.html">Docker guide</a>
+      <a href="https://labs.copperbaytech.com/shipsafe/" target="_blank" rel="noopener noreferrer">ShipSafe</a>
+      <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">LeakCheck</a>
+      <a href="https://labs.copperbaytech.com/exposurecheck/" target="_blank" rel="noopener noreferrer">ExposureCheck</a>
+      <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Secure my project &rarr;</a>
+    </nav>
+  </div>
+  <div class="wrap">
+    <p class="madeby">A <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Copper Bay Labs</a> product.</p>
+  </div>
+</footer>
+</body>
+</html>
