@@ -50,7 +50,7 @@
   .checklist{margin:18px 0;padding-left:0;list-style:none}
   .checklist li{padding:8px 0 8px 32px;border-bottom:1px solid var(--line);position:relative;font-size:15px}
   .checklist li:last-child{border-bottom:none}
-  .checklist li::before{content:"☐";position:absolute;left:0;top:8px;font-size:18px;color:var(--copper)}
+  .checklist li::before{content:"\2610";position:absolute;left:0;top:8px;font-size:18px;color:var(--copper)}
   .signal-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin:18px 0}
   .signal-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
   .signal-card .s-label{font-family:"Fraunces",serif;font-weight:700;font-size:16px;color:var(--ink);display:block;margin:0 0 6px}
@@ -95,6 +95,7 @@
       <a href="audit-npm-packages-security.html">Audit guide</a>
       <a href="npm-typosquatting-how-to-detect.html" aria-current="page">Typosquatting</a>
       <a href="npm-license-compliance.html">Licenses</a>
+      <a href="audit-node-docker-vulnerabilities.html">Docker</a>
     </nav>
   </div>
 </header>
@@ -334,6 +335,7 @@ ignore-scripts=true</code></pre>
       <a href="audit-npm-packages-security.html">Audit guide</a>
       <a href="npm-typosquatting-how-to-detect.html">Typosquatting</a>
       <a href="npm-license-compliance.html">License guide</a>
+      <a href="audit-node-docker-vulnerabilities.html">Docker guide</a>
       <a href="https://labs.copperbaytech.com/shipsafe/" target="_blank" rel="noopener noreferrer">ShipSafe</a>
       <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">LeakCheck</a>
       <a href="https://labs.copperbaytech.com/exposurecheck/" target="_blank" rel="noopener noreferrer">ExposureCheck</a>
