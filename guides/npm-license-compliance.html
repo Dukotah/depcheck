@@ -87,6 +87,7 @@
       <a href="audit-npm-packages-security.html">Audit guide</a>
       <a href="npm-typosquatting-how-to-detect.html">Typosquatting</a>
       <a href="npm-license-compliance.html" aria-current="page">Licenses</a>
+      <a href="audit-node-docker-vulnerabilities.html">Docker</a>
     </nav>
   </div>
 </header>
@@ -220,7 +221,7 @@ tar -tzf package-name-1.0.0.tgz | grep -i license</code></pre>
         <pre><code># Install once
 npm install -g license-checker
 
-# List all licenses (production deps only — omit --production to include devDependencies)
+# List all licenses (production deps only)
 license-checker --production
 
 # JSON output
@@ -276,7 +277,7 @@ license-checker --production \
       </details>
       <details>
         <summary>What is the difference between AGPL and GPL for a web application?</summary>
-        <p>GPL's copyleft is triggered by <em>distribution</em> — physically shipping software to users. Running a GPL web app on your server for users to access via a browser is generally not considered distribution, so the copyleft does not activate for a purely server-side application. AGPL closes this gap: it adds a "network use" clause that triggers copyleft when you run the software to provide a service over a network, even without distributing binaries. For virtually any web app, AGPL means you must release your entire application source code under AGPL if you use even one AGPL-licensed dependency.</p>
+        <p>GPL's copyleft is triggered by <em>distribution</em> — physically shipping software to users. Running a GPL web app on your server for users to access via a browser is generally not considered distribution, so the copyleft does not activate for a purely server-side application. AGPL closes this gap: it adds a &ldquo;network use&rdquo; clause that triggers copyleft when you run the software to provide a service over a network, even without distributing binaries. For virtually any web app, AGPL means you must release your entire application source code under AGPL if you use even one AGPL-licensed dependency.</p>
       </details>
       <details>
         <summary>Does bundling an LGPL package with webpack or Vite trigger copyleft?</summary>
@@ -284,15 +285,15 @@ license-checker --production \
       </details>
       <details>
         <summary>Can I use an AGPL package for an internal tool that is not public-facing?</summary>
-        <p>Possibly. AGPL's network-use clause triggers when you run the software to provide a service to users <em>other than yourself</em>. A tool used only by employees of your own organization on your internal network is generally not considered providing a service to external users. However, if external contractors access it, if it's sold as SaaS, or if the boundary is ambiguous, AGPL likely applies. Get legal advice before relying on the "internal only" exception for high-stakes cases.</p>
+        <p>Possibly. AGPL's network-use clause triggers when you run the software to provide a service to users <em>other than yourself</em>. A tool used only by employees of your own organization on your internal network is generally not considered providing a service to external users. However, if external contractors access it, if it's sold as SaaS, or if the boundary is ambiguous, AGPL likely applies. Get legal advice before relying on the &ldquo;internal only&rdquo; exception for high-stakes cases.</p>
       </details>
       <details>
-        <summary>What does "SEE LICENSE IN LICENSE.md" mean in package.json?</summary>
+        <summary>What does &ldquo;SEE LICENSE IN LICENSE.md&rdquo; mean in package.json?</summary>
         <p>It means the license is in a file inside the package tarball rather than expressed as an SPDX identifier string. This appears when a project uses a custom license, a dual license, or a license with conditions that don't fit a standard SPDX tag. You need to read that file before assuming the package is permissive. Download the package with <code class="inline">npm pack package-name</code>, extract the tarball, and open the LICENSE file to read the actual terms.</p>
       </details>
       <details>
         <summary>Is a package with no license field in package.json safe to use?</summary>
-        <p>No — not without confirming with the author. A missing license field legally means "all rights reserved." You have no permission to use, copy, modify, or distribute the package. In practice, many small packages omit the license field accidentally and the author intended permissive use, but you cannot rely on assumed intent. For any production dependency with no license, contact the author and ask them to add one, or find a licensed alternative.</p>
+        <p>No — not without confirming with the author. A missing license field legally means &ldquo;all rights reserved.&rdquo; You have no permission to use, copy, modify, or distribute the package. In practice, many small packages omit the license field accidentally and the author intended permissive use, but you cannot rely on assumed intent. For any production dependency with no license, contact the author and ask them to add one, or find a licensed alternative.</p>
       </details>
       <details>
         <summary>How do I check the licenses of all transitive dependencies, not just direct ones?</summary>
@@ -350,6 +351,7 @@ license-checker --production \
       <a href="audit-npm-packages-security.html">Audit guide</a>
       <a href="npm-typosquatting-how-to-detect.html">Typosquatting</a>
       <a href="npm-license-compliance.html">License guide</a>
+      <a href="audit-node-docker-vulnerabilities.html">Docker guide</a>
       <a href="https://labs.copperbaytech.com/shipsafe/" target="_blank" rel="noopener noreferrer">ShipSafe</a>
       <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">LeakCheck</a>
       <a href="https://labs.copperbaytech.com/exposurecheck/" target="_blank" rel="noopener noreferrer">ExposureCheck</a>
