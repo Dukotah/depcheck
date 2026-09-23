@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>npm audit vs Snyk vs Dependabot: Which Tool to Use</title>
+<meta name="description" content="npm audit, Snyk, and Dependabot all scan npm dependencies for vulnerabilities — but they catch different things and fit different workflows. This comparison shows what each tool covers, what it misses, and which stack to use for your project.">
+<link rel="canonical" href="https://labs.copperbaytech.com/depcheck/guides/npm-audit-vs-snyk-vs-dependabot.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="DepCheck">
+<meta property="og:title" content="npm audit vs Snyk vs Dependabot: Which Tool to Use">
+<meta property="og:description" content="npm audit, Snyk, and Dependabot cover different vulnerability surfaces and fit different workflows. Here is what each catches, what each misses, and how to combine them.">
+<meta property="og:url" content="https://labs.copperbaytech.com/depcheck/guides/npm-audit-vs-snyk-vs-dependabot.html">
+<meta property="og:image" content="https://labs.copperbaytech.com/depcheck/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#faf8f4">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle","headline":"npm audit vs Snyk vs Dependabot: Which Tool to Use","description":"A technical comparison of npm audit, Snyk, and Dependabot for npm vulnerability scanning: what each tool covers, what it misses, cost breakdown, and recommended stacks for solo developers, CI pipelines, and GitHub-based teams.","author":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"},"publisher":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"},"datePublished":"2026-09-23","dateModified":"2026-09-23","mainEntityOfPage":"https://labs.copperbaytech.com/depcheck/guides/npm-audit-vs-snyk-vs-dependabot.html","mainEntity":{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What is the difference between npm audit and Snyk?","acceptedAnswer":{"@type":"Answer","text":"npm audit queries the npm advisory database, which is updated by npm, Inc. and covers CVEs that have been reported to npm. Snyk queries its own curated vulnerability database, which is broader — Snyk researchers actively monitor sources beyond npm's advisory database and often publish findings days to weeks before they appear in the npm advisory DB. For the same package and version, Snyk typically surfaces more findings. Both tools report severity, affected versions, and fix recommendations; Snyk's recommendations also explain the risk of the suggested fix."}},{"@type":"Question","name":"Is Dependabot free?","acceptedAnswer":{"@type":"Answer","text":"Yes. Dependabot security alerts and automated security PRs are free for all GitHub repositories — public and private. Dependabot version updates (PRs to keep all dependencies up to date, not just security patches) are also free. There is no paid Dependabot tier; it is a GitHub feature, not a separate product."}},{"@type":"Question","name":"Does npm audit catch all vulnerabilities that Snyk catches?","acceptedAnswer":{"@type":"Answer","text":"No. Snyk's vulnerability database is a superset of the npm advisory database. Snyk's security research team curates findings from NVD, GitHub Advisory Database, and its own researchers, and often publishes findings before npm's advisory DB reflects them. In practice, npm audit will miss some vulnerabilities that Snyk catches, especially for less-popular packages and recently disclosed CVEs."}},{"@type":"Question","name":"Can Dependabot detect typosquatting attacks?","acceptedAnswer":{"@type":"Answer","text":"No. Dependabot (and npm audit and Snyk) check known vulnerabilities in packages you have already installed. None of them detect whether a package name in your package.json is a typosquatting attempt — a malicious package with a name that closely resembles a legitimate one. Typosquatting detection requires pattern matching against package names, which is a different technique from CVE database lookups."}},{"@type":"Question","name":"Should I use npm audit, Snyk, and Dependabot together?","acceptedAnswer":{"@type":"Answer","text":"Yes, for most projects a combination makes sense: Dependabot handles automated GitHub PR creation for security patches (no additional setup once enabled), npm audit runs in your local pre-commit or CI pipeline for fast blocking feedback, and Snyk adds broader vulnerability coverage and smarter fix explanations in pull request checks. They are complementary, not redundant, because they use different databases and integrate at different points in the workflow."}},{"@type":"Question","name":"What does npm audit miss that other tools catch?","acceptedAnswer":{"@type":"Answer","text":"npm audit misses several vulnerability classes: (1) CVEs in Snyk's database that have not yet been added to the npm advisory DB; (2) license compliance issues — npm audit only checks CVEs, not license risks; (3) abandoned packages — a package with no maintainer activity in years and no published security policy; (4) typosquatting attempts — malicious packages installed via name confusion; (5) OS-layer vulnerabilities in Docker images. Each of these requires a separate tool or scan type."}},{"@type":"Question","name":"Does Snyk cost money?","acceptedAnswer":{"@type":"Answer","text":"Snyk has a free tier that covers unlimited public repositories and a limited number of private repository tests per month (the limit has changed over time — check snyk.io for the current allowance). The free tier includes CLI scanning, GitHub integration, and IDE extensions. Paid tiers add features like license compliance scanning, custom policies, Jira integration, and higher test limits. For most individual developers and small teams, the free tier is sufficient for CVE scanning."}}]}}
+</script>
+<link rel="stylesheet" href="../styles.css?v=1">
+<style>
+  .doc .lede{font-size:clamp(17px,2.3vw,20px);color:var(--muted)}
+  .doc h2{scroll-margin-top:80px}
+  .doc h3{font-family:"Fraunces",Georgia,serif;font-weight:600;font-size:19px;margin:22px 0 6px;letter-spacing:-.01em}
+  .toc{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 6px;padding:0;list-style:none}
+  .toc a{display:inline-block;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:14px;font-weight:600;color:var(--muted)}
+  .toc a:hover{border-color:var(--bay);color:var(--ink);text-decoration:none}
+  .callout.warn-callout{background:var(--fail-bg);border-left-color:var(--fail);color:#5e2019}
+  .callout.tip-callout{background:var(--pass-bg);border-left-color:var(--pass);color:#1b4d30}
+  pre{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;margin:12px 0}
+  pre code{background:none;padding:0;font-size:inherit}
+  .doc code.inline{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background:var(--line-2);padding:2px 6px;border-radius:5px}
+  .coverage-table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}
+  .coverage-table th{text-align:left;padding:10px 12px;background:var(--surface);border-bottom:2px solid var(--line);font-weight:600}
+  .coverage-table td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  .coverage-table tr:last-child td{border-bottom:none}
+  .badge{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:5px;letter-spacing:.03em;text-transform:uppercase}
+  .badge.yes{background:#d1f0e0;color:#1b5e36}
+  .badge.no{background:#fde8e6;color:#7a1a13}
+  .badge.partial{background:#fff3cc;color:#7a4f00}
+  .badge.free{background:#e8f4f6;color:#0d5460}
+  .badge.paid{background:#f3e8ff;color:#4a1870}
+  .stack-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:12px 0}
+  .stack-card h3{margin:0 0 8px}
+  .stack-card p{margin:0;color:var(--muted);font-size:14px}
+  .stack-card ul{margin:8px 0 0;padding-left:18px;color:var(--muted);font-size:14px}
+  .suite{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:18px 0 6px}
+  .suite a{display:block;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);transition:box-shadow .15s,transform .15s,border-color .15s}
+  .suite a:hover{text-decoration:none;box-shadow:var(--shadow-lift);transform:translateY(-2px);border-color:var(--line-2)}
+  .suite .s-name{font-family:"Fraunces",serif;font-weight:600;font-size:17px;color:var(--ink);display:block;margin:0 0 4px}
+  .suite p{color:var(--muted);font-size:14px;margin:0}
+  .suite .s-tag{display:inline-block;margin-bottom:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--bay);background:var(--bay-tint,#e8f4f6);border:1px solid #cfe1e3;border-radius:6px;padding:2px 8px}
+  .faq-section{margin:18px 0}
+  .faq-section details{border-bottom:1px solid var(--line);padding:14px 0}
+  .faq-section details:first-child{border-top:1px solid var(--line)}
+  .faq-section summary{font-weight:600;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .faq-section summary::-webkit-details-marker{display:none}
+  .faq-section summary::after{content:"+";font-size:20px;color:var(--muted);flex-shrink:0}
+  .faq-section details[open] summary::after{content:"\2212"}
+  .faq-section details p,.faq-section details ul{margin:12px 0 4px;color:var(--muted)}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to main content</a>
+
+<header class="masthead" role="banner">
+  <div class="wrap hdr-bar">
+    <a class="brand" href="../" aria-label="DepCheck — go to homepage">
+      <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+        <path d="M10 16 30 26 30 48 10 38 Z" fill="#14181f"/>
+        <path d="M50 16 30 26 30 48 50 38 Z" fill="#1d222b"/>
+        <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+        <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="wordmark">DepCheck</span>
+    </a>
+    <nav class="nav" aria-label="Primary navigation">
+      <a href="../about.html">How it works</a>
+      <a href="fix-npm-audit-vulnerabilities.html">Fix guides</a>
+      <a href="audit-npm-packages-security.html">Audit guide</a>
+      <a href="npm-typosquatting-how-to-detect.html">Typosquatting</a>
+      <a href="npm-license-compliance.html">Licenses</a>
+      <a href="audit-node-docker-vulnerabilities.html">Docker</a>
+      <a href="npm-audit-vs-snyk-vs-dependabot.html" aria-current="page">Tool compare</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<article class="doc">
+  <div class="wrap narrow">
+    <p class="eyebrow" style="text-align:left">Tool comparison guide</p>
+    <h1>npm audit vs Snyk vs Dependabot: which tool to use for your project</h1>
+    <p class="lede">Three tools, different databases, different integration points, and overlapping (but not identical) vulnerability coverage. This comparison explains exactly what each catches, what it misses, and which combination makes sense for your workflow.</p>
+
+    <ul class="toc" aria-label="On this page">
+      <li><a href="#quick-comparison">Quick comparison</a></li>
+      <li><a href="#npm-audit">npm audit</a></li>
+      <li><a href="#dependabot">Dependabot</a></li>
+      <li><a href="#snyk">Snyk</a></li>
+      <li><a href="#what-each-misses">What each tool misses</a></li>
+      <li><a href="#recommended-stacks">Recommended stacks</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+
+    <h2 id="quick-comparison">Quick comparison</h2>
+
+    <table class="coverage-table">
+      <thead>
+        <tr>
+          <th>Feature</th>
+          <th>npm audit</th>
+          <th>Dependabot</th>
+          <th>Snyk</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Vulnerability database</strong></td>
+          <td>npm Advisory DB</td>
+          <td>GitHub Advisory DB</td>
+          <td>Snyk DB (superset)</td>
+        </tr>
+        <tr>
+          <td><strong>CVE coverage</strong></td>
+          <td><span class="badge partial">Partial</span></td>
+          <td><span class="badge partial">Partial</span></td>
+          <td><span class="badge yes">Broadest</span></td>
+        </tr>
+        <tr>
+          <td><strong>Automated fix PRs</strong></td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge yes">Yes (GitHub)</span></td>
+          <td><span class="badge yes">Yes (GitHub+)</span></td>
+        </tr>
+        <tr>
+          <td><strong>Works without GitHub</strong></td>
+          <td><span class="badge yes">Yes (CLI)</span></td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge yes">Yes (CLI/web)</span></td>
+        </tr>
+        <tr>
+          <td><strong>License scanning</strong></td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge paid">Paid tier</span></td>
+        </tr>
+        <tr>
+          <td><strong>Typosquatting detection</strong></td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge no">No</span></td>
+        </tr>
+        <tr>
+          <td><strong>Abandoned package signals</strong></td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge no">No</span></td>
+        </tr>
+        <tr>
+          <td><strong>Cost</strong></td>
+          <td><span class="badge free">Free (built-in)</span></td>
+          <td><span class="badge free">Free (GitHub)</span></td>
+          <td><span class="badge free">Free tier</span> + <span class="badge paid">Paid</span></td>
+        </tr>
+        <tr>
+          <td><strong>Setup required</strong></td>
+          <td>None — part of npm</td>
+          <td>Enable in repo settings</td>
+          <td>CLI install or GitHub app</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2 id="npm-audit">npm audit</h2>
+    <p><code class="inline">npm audit</code> is built into npm (available since npm 6). It compares the packages in your <code class="inline">package-lock.json</code> or <code class="inline">yarn.lock</code> against the <strong>npm Advisory Database</strong> — a registry of CVEs that have been disclosed to npm, Inc.</p>
+
+    <pre><code># Run a full audit
+npm audit
+
+# Exit non-zero only on high and critical findings (useful in CI)
+npm audit --audit-level=high
+
+# Automatically apply safe fixes
+npm audit fix
+
+# Apply fixes that include semver-major upgrades (use with caution)
+npm audit fix --force</code></pre>
+
+    <h3>What npm audit does well</h3>
+    <p>It requires zero setup — if you have npm, you have <code class="inline">npm audit</code>. It is fast (milliseconds for most projects), easy to add to a <code class="inline">package.json</code> script or a CI step, and the output is machine-readable with <code class="inline">--json</code>. For well-known, widely-used packages, its CVE coverage is reliable.</p>
+
+    <h3>Where npm audit falls short</h3>
+    <p>The npm advisory database is reactive: it depends on maintainers and the community submitting reports. Newly discovered CVEs can take days to weeks to appear. For less popular packages, coverage is thin. npm audit also has no knowledge of license risk, package abandonment, or whether a package name looks like a typosquatting attempt.</p>
+
+    <div class="callout warn-callout">
+      <strong>npm audit only checks packages that are already installed.</strong> If a malicious or typosquatted package is installed successfully, <code class="inline">npm audit</code> will not flag it — because the package name itself is unknown to the advisory database. Supply-chain attacks via name confusion are outside its detection scope entirely.
+    </div>
+
+    <h2 id="dependabot">Dependabot</h2>
+    <p>Dependabot is a GitHub-native feature (acquired by GitHub in 2019) that opens automated pull requests to update dependencies. It has two modes relevant to security:</p>
+
+    <ul>
+      <li><strong>Security alerts</strong> — GitHub detects a known vulnerability in your dependency tree and notifies you (no PR, just an alert).</li>
+      <li><strong>Security updates</strong> — Dependabot automatically opens a PR with the minimum version bump to fix the vulnerability.</li>
+    </ul>
+
+    <p>Dependabot uses the <strong>GitHub Advisory Database</strong>, which aggregates CVEs from NVD, the npm Advisory DB, GHSA (GitHub Security Advisories), and other sources. Its coverage is broader than npm audit alone but narrower than Snyk.</p>
+
+    <h3>Enabling Dependabot</h3>
+    <p>Go to your repository&rsquo;s <strong>Security</strong> tab &rarr; <strong>Dependabot</strong> &rarr; enable both alerts and security updates. No CLI installation, no configuration file required for the basic setup.</p>
+
+    <p>For more control, add a <code class="inline">.github/dependabot.yml</code> file:</p>
+
+    <pre><code>version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Only open PRs for security patches, not version bumps
+    open-pull-requests-limit: 10</code></pre>
+
+    <h3>Dependabot&rsquo;s key advantage</h3>
+    <p>The automated PR workflow means you do not have to check a dashboard — the fix arrives as a pull request with the diff, the vulnerability description, and a link to the advisory. For teams already on GitHub, this is the lowest-friction way to stay current on security patches.</p>
+
+    <div class="callout warn-callout">
+      <strong>Dependabot only works on GitHub.</strong> If your code is on GitLab, Bitbucket, or a private server, Dependabot is not available. Use Snyk or npm audit in CI instead.
+    </div>
+
+    <h2 id="snyk">Snyk</h2>
+    <p>Snyk maintains its own vulnerability database — a dedicated security research team curates findings from NVD, the GitHub Advisory Database, npm&rsquo;s advisory DB, and independent research. The result is a database that is a <strong>superset</strong> of what npm audit and Dependabot see: Snyk often publishes findings before they appear in the npm advisory DB, and covers some package-level vulnerabilities that are never added to public CVE databases.</p>
+
+    <h3>Using Snyk</h3>
+    <pre><code># Install the Snyk CLI
+npm install -g snyk
+
+# Authenticate (one-time, opens browser)
+snyk auth
+
+# Test your project
+snyk test
+
+# Test and fail if high or critical findings
+snyk test --severity-threshold=high
+
+# Monitor the project (alerts you when new CVEs affect it)
+snyk monitor</code></pre>
+
+    <p>Snyk also offers a <strong>GitHub App</strong> that adds PR checks (similar to Dependabot but using Snyk&rsquo;s broader database), a web dashboard, and IDE extensions for VS Code, JetBrains, and others.</p>
+
+    <h3>Snyk&rsquo;s fix suggestions</h3>
+    <p>Unlike <code class="inline">npm audit fix</code>, which applies the minimum version constraint that satisfies the advisory, Snyk&rsquo;s fix recommendations include context: <em>upgrading from X.Y.Z to X.Y.W introduces a breaking change in the API used by your code</em>. This requires Snyk to analyze your codebase — which it does when you run <code class="inline">snyk test</code> with the code present, not just the lockfile.</p>
+
+    <h3>Cost</h3>
+    <p>Snyk&rsquo;s free tier covers unlimited public repositories and a capped number of private repository tests per month (confirm current limits at snyk.io, as they change). CLI scanning, the GitHub integration, and IDE extensions are all included in the free tier. Paid tiers add license compliance scanning, custom security policies, container scanning, and higher test limits.</p>
+
+    <h2 id="what-each-misses">What each tool misses</h2>
+
+    <table class="coverage-table">
+      <thead>
+        <tr>
+          <th>Risk class</th>
+          <th>npm audit</th>
+          <th>Dependabot</th>
+          <th>Snyk</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>CVEs in npm advisory DB</td>
+          <td><span class="badge yes">Yes</span></td>
+          <td><span class="badge yes">Yes</span></td>
+          <td><span class="badge yes">Yes</span></td>
+        </tr>
+        <tr>
+          <td>CVEs not yet in npm advisory DB</td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge partial">Some</span></td>
+          <td><span class="badge yes">Yes</span></td>
+        </tr>
+        <tr>
+          <td>Automated fix PRs</td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge yes">Yes</span></td>
+          <td><span class="badge yes">Yes</span></td>
+        </tr>
+        <tr>
+          <td>Works outside GitHub</td>
+          <td><span class="badge yes">Yes</span></td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge yes">Yes</span></td>
+        </tr>
+        <tr>
+          <td>License compliance</td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge paid">Paid tier only</span></td>
+        </tr>
+        <tr>
+          <td>Abandoned package detection</td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge no">No</span></td>
+        </tr>
+        <tr>
+          <td>Typosquatting / name confusion</td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge no">No</span></td>
+        </tr>
+        <tr>
+          <td>OS-layer Docker vulnerabilities</td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge paid">Container scanning (paid)</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>The shared blind spot across all three tools is <strong>typosquatting and abandoned packages</strong>. All three look up packages you have already installed in a CVE database. They cannot detect that <code class="inline">lodahs</code> (transposing two characters in <code class="inline">lodash</code>) is a malicious package — because the malicious package simply does not appear in any CVE database yet, and may never be reported before it exfiltrates credentials from your build environment.</p>
+
+    <h2 id="recommended-stacks">Recommended stacks</h2>
+
+    <div class="stack-card">
+      <h3>Solo developer, personal project on GitHub</h3>
+      <p>Enable Dependabot security updates (one click in repo settings). Run <code class="inline">npm audit --audit-level=high</code> in your CI pipeline. This costs nothing and catches the overwhelming majority of published CVEs with automated fixes.</p>
+      <ul>
+        <li>Dependabot: automated PRs for security patches</li>
+        <li>npm audit in CI: fast blocking gate</li>
+        <li>DepCheck: paste <code class="inline">package.json</code> before adding new dependencies</li>
+      </ul>
+    </div>
+
+    <div class="stack-card">
+      <h3>Team project on GitHub, open source or commercial</h3>
+      <p>Add the Snyk GitHub App for PR checks using Snyk&rsquo;s broader database. Keep Dependabot for automated fix PRs. Run <code class="inline">snyk test --severity-threshold=high</code> in CI alongside npm audit.</p>
+      <ul>
+        <li>Dependabot: automated fix PRs</li>
+        <li>Snyk GitHub App: PR checks with broader coverage</li>
+        <li>snyk test in CI: fail builds on high/critical</li>
+        <li>DepCheck: pre-install paste check for typosquatting signals</li>
+      </ul>
+    </div>
+
+    <div class="stack-card">
+      <h3>Project not on GitHub (GitLab, Bitbucket, self-hosted)</h3>
+      <p>Dependabot is unavailable. Use Snyk&rsquo;s native integration for your platform (GitLab, Bitbucket, Azure DevOps are all supported). Run <code class="inline">npm audit</code> as a fast local check.</p>
+      <ul>
+        <li>Snyk integration for your platform</li>
+        <li>npm audit in CI pipeline</li>
+      </ul>
+    </div>
+
+    <div class="stack-card">
+      <h3>Containerized Node.js (Docker)</h3>
+      <p>Add <code class="inline">npm audit --audit-level=high</code> as a Dockerfile RUN step after <code class="inline">npm ci</code>. Then scan the built image with Trivy or Docker Scout to catch OS-layer CVEs that no npm tool sees. See the <a href="audit-node-docker-vulnerabilities.html">Docker audit guide</a> for the full workflow.</p>
+      <ul>
+        <li>npm audit inside the Dockerfile build</li>
+        <li>Trivy or Docker Scout: image-level OS + npm scan</li>
+        <li>Dependabot or Snyk: automated PRs for base image and package updates</li>
+      </ul>
+    </div>
+
+    <div class="callout tip-callout">
+      <strong>Run a paste check before installing any new dependency.</strong> None of the three tools above will flag a typosquatted package until it appears in a CVE database — which may be weeks after it has been in your <code class="inline">node_modules</code>. <a href="../">DepCheck</a> applies typosquatting pattern checks and abandoned-package signals at paste time, before <code class="inline">npm install</code> runs.
+    </div>
+
+    <p style="margin:24px 0 8px"><a class="btn primary" href="../">Check your package.json with DepCheck &rarr;</a></p>
+    <p style="margin:0 0 24px;color:var(--muted);font-size:15px">Paste your <code class="inline">package.json</code> and see CVE findings alongside typosquatting signals, abandoned package warnings, and license risk &mdash; no install, no account, all in the browser.</p>
+
+    <h2 id="faq">Frequently asked questions</h2>
+    <div class="faq-section">
+      <details open>
+        <summary>What is the difference between npm audit and Snyk?</summary>
+        <p>npm audit queries the npm Advisory Database, updated by npm, Inc. Snyk queries its own curated database, which is a superset — it includes findings from NVD, the GitHub Advisory DB, and Snyk&rsquo;s own research, and often surfaces CVEs days to weeks before they appear in npm&rsquo;s advisory DB. For the same package, Snyk typically finds more findings. Both provide severity ratings, affected versions, and fix recommendations; Snyk also explains the risk of each suggested fix.</p>
+      </details>
+      <details>
+        <summary>Is Dependabot free?</summary>
+        <p>Yes. Dependabot security alerts and automated security PRs are free for all GitHub repositories &mdash; public and private. Dependabot version updates (for keeping all dependencies current, not just patching security issues) are also free. There is no paid Dependabot tier; it is a built-in GitHub feature.</p>
+      </details>
+      <details>
+        <summary>Does npm audit catch all vulnerabilities that Snyk catches?</summary>
+        <p>No. Snyk&rsquo;s database is broader. In practice, npm audit will miss some CVEs that Snyk flags, particularly for recently disclosed vulnerabilities and less-popular packages. The overlap is substantial, but Snyk is the more comprehensive scanner of the two for CVE coverage.</p>
+      </details>
+      <details>
+        <summary>Can Dependabot detect typosquatting attacks?</summary>
+        <p>No. Dependabot, npm audit, and Snyk all look up installed packages in CVE databases. None of them can detect whether a package name in your <code class="inline">package.json</code> is a typosquatting attempt &mdash; a malicious package designed to mimic a legitimate name. Typosquatting detection requires name-pattern analysis, not vulnerability database lookups. DepCheck applies pattern checks for common typosquatting techniques (character transposition, homoglyphs, prefix/suffix confusions) when you paste your <code class="inline">package.json</code>.</p>
+      </details>
+      <details>
+        <summary>Should I use npm audit, Snyk, and Dependabot together?</summary>
+        <p>For most GitHub-hosted projects, yes. They are complementary: Dependabot handles automated PR creation for security patches with zero ongoing effort, npm audit provides fast CI blocking with no external service, and Snyk adds broader database coverage in PR checks. The three integrate at different points in the workflow (local, GitHub PR, CI pipeline) and use different databases, so running them together closes more of the coverage gap than any one tool alone.</p>
+      </details>
+      <details>
+        <summary>What does npm audit miss that other tools catch?</summary>
+        <p>npm audit misses: (1) CVEs in Snyk&rsquo;s database not yet added to npm&rsquo;s advisory DB; (2) license compliance issues &mdash; npm audit only checks CVEs; (3) abandoned packages; (4) typosquatting attempts; (5) OS-layer vulnerabilities in Docker images. Each requires a separate tool. DepCheck covers license risk, typosquatting, and abandonment signals for the npm package layer in the browser, without any install.</p>
+      </details>
+      <details>
+        <summary>Does Snyk cost money?</summary>
+        <p>Snyk has a free tier that covers unlimited public repositories and a limited number of private repository tests per month. CLI scanning, the GitHub integration, and IDE extensions are all included in the free tier. Paid tiers add license compliance scanning, custom policies, and higher private-repo test limits. Check snyk.io for current free tier limits, which have changed over time. For most solo developers and small teams, the free tier is sufficient for CVE scanning.</p>
+      </details>
+    </div>
+
+    <h2 style="margin-top:48px">Also in the Copper Bay Labs ship-safety suite</h2>
+    <p>Dependency vulnerability scanning is one layer of your pre-ship checklist. These free tools cover the rest:</p>
+    <div class="suite">
+      <a href="../">
+        <span class="s-tag">Dependency risk</span>
+        <span class="s-name">DepCheck</span>
+        <p>Paste your <code class="inline">package.json</code> and see vulnerable, abandoned, typosquatted, and risky-license packages flagged by severity &mdash; browser-native, no install required.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">Secret scanning</span>
+        <span class="s-name">LeakCheck</span>
+        <p>Paste code or a config file and see exposed API keys and secrets before they reach the repo.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/hardencheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">HTTP hardening</span>
+        <span class="s-name">HardenCheck</span>
+        <p>Check your security headers and CSP in seconds.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/shipsafe/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">ADA / WCAG</span>
+        <span class="s-name">ShipSafe</span>
+        <p>Scan for ADA/WCAG failures before they become a demand letter.</p>
+      </a>
+    </div>
+  </div>
+</article>
+</main>
+
+<footer class="footer" role="contentinfo">
+  <div class="wrap foot">
+    <div>
+      <a class="brand small" href="../" aria-label="DepCheck &mdash; homepage">
+        <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+          <path d="M10 16 30 26 30 48 10 38 Z" fill="#cbd2da"/>
+          <path d="M50 16 30 26 30 48 50 38 Z" fill="#aeb6c0"/>
+          <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+          <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="wordmark">DepCheck</span>
+      </a>
+      <p class="fine">Heuristic dependency checks, not a security guarantee.</p>
+    </div>
+    <nav class="foot-nav" aria-label="Footer navigation">
+      <a href="../about.html">How it works</a>
+      <a href="fix-npm-audit-vulnerabilities.html">Fix guide</a>
+      <a href="audit-npm-packages-security.html">Audit guide</a>
+      <a href="npm-typosquatting-how-to-detect.html">Typosquatting</a>
+      <a href="npm-license-compliance.html">License guide</a>
+      <a href="audit-node-docker-vulnerabilities.html">Docker guide</a>
+      <a href="npm-audit-vs-snyk-vs-dependabot.html">Tool compare</a>
+      <a href="https://labs.copperbaytech.com/shipsafe/" target="_blank" rel="noopener noreferrer">ShipSafe</a>
+      <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">LeakCheck</a>
+      <a href="https://labs.copperbaytech.com/exposurecheck/" target="_blank" rel="noopener noreferrer">ExposureCheck</a>
+      <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Secure my project &rarr;</a>
+    </nav>
+  </div>
+  <div class="wrap">
+    <p class="madeby">A <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Copper Bay Labs</a> product.</p>
+  </div>
+</footer>
+</body>
+</html>
