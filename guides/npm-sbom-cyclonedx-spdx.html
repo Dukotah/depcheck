@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>npm SBOM: How to Generate One with CycloneDX or SPDX</title>
+<meta name="description" content="How to generate a software bill of materials for your npm project using CycloneDX (@cyclonedx/cyclonedx-npm) or SPDX tools. Step-by-step guide with CI/CD integration and when an SBOM is required.">
+<link rel="canonical" href="https://labs.copperbaytech.com/depcheck/guides/npm-sbom-cyclonedx-spdx.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="DepCheck">
+<meta property="og:title" content="npm SBOM: How to Generate One with CycloneDX or SPDX">
+<meta property="og:description" content="A step-by-step guide to generating a software bill of materials for your npm project. Covers CycloneDX and SPDX formats, CLI commands, GitHub Actions CI integration, and when SBOMs are required by regulation.">
+<meta property="og:url" content="https://labs.copperbaytech.com/depcheck/guides/npm-sbom-cyclonedx-spdx.html">
+<meta property="og:image" content="https://labs.copperbaytech.com/depcheck/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#faf8f4">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle","headline":"npm SBOM: How to Generate One with CycloneDX or SPDX","description":"A step-by-step guide to generating a software bill of materials (SBOM) for an npm project. Covers CycloneDX (@cyclonedx/cyclonedx-npm), npm's built-in sbom command (npm 9+), spdx-sbom-generator, GitHub Actions CI integration, SPDX vs CycloneDX format comparison, and when SBOMs are required by US or EU regulation.","author":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"},"publisher":{"@type":"Organization","name":"Copper Bay Labs","url":"https://copperbaytech.com"},"datePublished":"2026-10-05","dateModified":"2026-10-05","mainEntityOfPage":"https://labs.copperbaytech.com/depcheck/guides/npm-sbom-cyclonedx-spdx.html","mainEntity":{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What is an SBOM?","acceptedAnswer":{"@type":"Answer","text":"A software bill of materials (SBOM) is a machine-readable inventory of every component in your software — direct dependencies, transitive dependencies, their versions, licenses, and package identifiers. For an npm project, an SBOM formally documents everything in your package-lock.json dependency tree in a standardized format (SPDX or CycloneDX) that other tools, auditors, and security platforms can read and query."}},{"@type":"Question","name":"Is generating an SBOM required for npm packages?","acceptedAnswer":{"@type":"Answer","text":"Not currently for most npm packages. SBOM requirements are context-dependent. US Executive Order 14028 (2021) requires SBOMs for software sold to US federal agencies. The EU Cyber Resilience Act (CRA), with enforcement phased in from 2027, requires SBOMs for commercial products with digital elements sold in the EU market. Open-source libraries distributed without a commercial relationship generally fall outside these mandates. That said, enterprise procurement teams increasingly ask for SBOMs as part of due diligence, and generating one is low-effort."}},{"@type":"Question","name":"What is the difference between SPDX and CycloneDX?","acceptedAnswer":{"@type":"Answer","text":"Both are open SBOM standards with different emphases. SPDX (Software Package Data Exchange), maintained by the Linux Foundation, was designed primarily for license compliance: it documents component provenance and license expressions in detail. CycloneDX, maintained by OWASP, was designed for supply chain security: its schema includes vulnerability references, CVSS scores, exploitability data, and remediation metadata alongside component inventory. CycloneDX is generally the better choice for security tooling integration; SPDX is preferred for legal and license-compliance workflows."}},{"@type":"Question","name":"Does an SBOM replace npm audit?","acceptedAnswer":{"@type":"Answer","text":"No. An SBOM documents what is in your dependency tree; npm audit checks whether any of those components have known CVEs. They are complementary. Generate an SBOM to answer \"what is in my software?\" and run npm audit (or Snyk) to answer \"is anything in my software currently vulnerable?\" Some security platforms accept a CycloneDX SBOM as input and run their own vulnerability analysis against it — in that case the SBOM drives the audit."}},{"@type":"Question","name":"How do I generate an SBOM without installing extra tools?","acceptedAnswer":{"@type":"Answer","text":"npm 9.1.0 and later include a built-in sbom command: npm sbom --sbom-format cyclonedx --sbom-type package outputs a CycloneDX SBOM to stdout. Use --sbom-format spdx for SPDX. This requires no additional dependencies and works wherever npm 9+ is installed. The output is less detailed than @cyclonedx/cyclonedx-npm (no per-component hashes by default), but it is the fastest way to get a compliant SBOM if you only have npm available."}},{"@type":"Question","name":"What is a PURL in a CycloneDX SBOM?","acceptedAnswer":{"@type":"Answer","text":"A Package URL (PURL) is a standardized string identifier for a software component. For npm packages it looks like pkg:npm/express@4.18.2 — encoding the package type, name, and version in a format that vulnerability databases, license scanners, and SCA tools use to match components without ambiguity. PURLs are how a CycloneDX SBOM connects to external databases like the GitHub Advisory DB or Snyk's database at query time."}},{"@type":"Question","name":"Does DepCheck read my SBOM file?","acceptedAnswer":{"@type":"Answer","text":"DepCheck analyzes package.json by paste, not by reading an SBOM file. The SBOM is a downstream document describing your finalized dependency tree. DepCheck is most useful upstream — before npm install or before adding a new dependency — when it can flag typosquatting signals, abandoned packages, and risky license terms in packages you are considering. Run DepCheck at dependency selection time; generate your SBOM at build or release time."}}]}}
+</script>
+<link rel="stylesheet" href="../styles.css?v=1">
+<style>
+  .doc .lede{font-size:clamp(17px,2.3vw,20px);color:var(--muted)}
+  .doc h2{scroll-margin-top:80px}
+  .doc h3{font-family:"Fraunces",Georgia,serif;font-weight:600;font-size:19px;margin:22px 0 6px;letter-spacing:-.01em}
+  .toc{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 6px;padding:0;list-style:none}
+  .toc a{display:inline-block;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:14px;font-weight:600;color:var(--muted)}
+  .toc a:hover{border-color:var(--bay);color:var(--ink);text-decoration:none}
+  .callout.warn-callout{background:var(--fail-bg);border-left-color:var(--fail);color:#5e2019}
+  .callout.tip-callout{background:var(--pass-bg);border-left-color:var(--pass);color:#1b4d30}
+  .callout.info-callout{background:var(--surface);border-left-color:var(--bay);color:var(--ink)}
+  pre{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;margin:12px 0}
+  pre code{background:none;padding:0;font-size:inherit}
+  .doc code.inline{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background:var(--line-2);padding:2px 6px;border-radius:5px}
+  .compare-table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}
+  .compare-table th{text-align:left;padding:10px 12px;background:var(--surface);border-bottom:2px solid var(--line);font-weight:600}
+  .compare-table td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  .compare-table tr:last-child td{border-bottom:none}
+  .badge{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:5px;letter-spacing:.03em;text-transform:uppercase}
+  .badge.yes{background:#d1f0e0;color:#1b5e36}
+  .badge.partial{background:#fff3cc;color:#7a4f00}
+  .badge.info{background:#e8f4f6;color:#0d5460}
+  .step-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:12px 0}
+  .step-card h3{margin:0 0 8px}
+  .step-card p{margin:0 0 10px;color:var(--muted);font-size:14px}
+  .step-card p:last-child{margin-bottom:0}
+  .suite{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:18px 0 6px}
+  .suite a{display:block;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);transition:box-shadow .15s,transform .15s,border-color .15s}
+  .suite a:hover{text-decoration:none;box-shadow:var(--shadow-lift);transform:translateY(-2px);border-color:var(--line-2)}
+  .suite .s-name{font-family:"Fraunces",serif;font-weight:600;font-size:17px;color:var(--ink);display:block;margin:0 0 4px}
+  .suite p{color:var(--muted);font-size:14px;margin:0}
+  .suite .s-tag{display:inline-block;margin-bottom:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--bay);background:var(--bay-tint,#e8f4f6);border:1px solid #cfe1e3;border-radius:6px;padding:2px 8px}
+  .faq-section{margin:18px 0}
+  .faq-section details{border-bottom:1px solid var(--line);padding:14px 0}
+  .faq-section details:first-child{border-top:1px solid var(--line)}
+  .faq-section summary{font-weight:600;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .faq-section summary::-webkit-details-marker{display:none}
+  .faq-section summary::after{content:"+";font-size:20px;color:var(--muted);flex-shrink:0}
+  .faq-section details[open] summary::after{content:"\2212"}
+  .faq-section details p,.faq-section details ul,.faq-section details pre{margin:12px 0 4px;color:var(--muted)}
+  .faq-section details pre{font-size:12px}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to main content</a>
+
+<header class="masthead" role="banner">
+  <div class="wrap hdr-bar">
+    <a class="brand" href="../" aria-label="DepCheck &mdash; go to homepage">
+      <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+        <path d="M10 16 30 26 30 48 10 38 Z" fill="#14181f"/>
+        <path d="M50 16 30 26 30 48 50 38 Z" fill="#1d222b"/>
+        <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+        <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="wordmark">DepCheck</span>
+    </a>
+    <nav class="nav" aria-label="Primary navigation">
+      <a href="../about.html">How it works</a>
+      <a href="fix-npm-audit-vulnerabilities.html">Fix guides</a>
+      <a href="audit-npm-packages-security.html">Audit guide</a>
+      <a href="npm-typosquatting-how-to-detect.html">Typosquatting</a>
+      <a href="npm-license-compliance.html">Licenses</a>
+      <a href="audit-node-docker-vulnerabilities.html">Docker</a>
+      <a href="npm-audit-vs-snyk-vs-dependabot.html">Tool compare</a>
+      <a href="npm-sbom-cyclonedx-spdx.html" aria-current="page">SBOM guide</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<article class="doc">
+  <div class="wrap narrow">
+    <p class="eyebrow" style="text-align:left">Supply chain guide</p>
+    <h1>npm SBOM: how to generate a software bill of materials with CycloneDX or SPDX</h1>
+    <p class="lede">An SBOM is a machine-readable list of everything in your software&rsquo;s dependency tree. Here is how to generate one for your npm project, which format to pick, how to wire it into CI, and what it is actually useful for.</p>
+
+    <ul class="toc" aria-label="On this page">
+      <li><a href="#what-is-sbom">What is an SBOM</a></li>
+      <li><a href="#why-now">Why generate one now</a></li>
+      <li><a href="#formats">SPDX vs CycloneDX</a></li>
+      <li><a href="#cyclonedx">Generate with CycloneDX</a></li>
+      <li><a href="#npm-builtin">npm built-in (npm 9+)</a></li>
+      <li><a href="#spdx">Generate with SPDX tools</a></li>
+      <li><a href="#ci">CI integration</a></li>
+      <li><a href="#depcheck">DepCheck + SBOM</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+
+    <h2 id="what-is-sbom">What is an SBOM</h2>
+    <p>A <strong>software bill of materials</strong> (SBOM) is a formal, machine-readable inventory of every component in your software: direct dependencies, transitive dependencies, their exact versions, their licenses, and their unique identifiers (such as Package URLs, or PURLs). For an npm project, an SBOM is essentially a structured export of what your <code class="inline">package-lock.json</code> already knows, serialized into a standardized format that other tools, auditors, and security platforms can query.</p>
+
+    <p>Think of it as the ingredient list on a food product, applied to software. When a critical vulnerability is disclosed in a widely-used library (the npm ecosystem has had several), organizations with SBOMs can query their inventory and know within minutes whether they are affected. Organizations without one spend days of manual grep-and-search work to answer the same question.</p>
+
+    <h2 id="why-now">Why generate one now</h2>
+
+    <p>SBOM adoption has accelerated due to three converging pressures:</p>
+
+    <div class="step-card">
+      <h3>US Executive Order 14028 (May 2021)</h3>
+      <p>Requires federal agencies to obtain SBOMs for software they acquire. Software vendors selling to the US government &mdash; or seeking to &mdash; must produce SBOMs for their products. NIST&rsquo;s guidance on SBOM minimum elements (published 2021) specifies CycloneDX and SPDX as the accepted formats.</p>
+    </div>
+
+    <div class="step-card">
+      <h3>EU Cyber Resilience Act (CRA)</h3>
+      <p>Passed by the European Parliament in 2024, with enforcement requirements phased in from 2027. Requires manufacturers of &ldquo;products with digital elements&rdquo; sold in the EU market to maintain SBOMs for their products throughout the support lifecycle. Applies primarily to commercial products, not to open-source software distributed without a commercial relationship.</p>
+    </div>
+
+    <div class="step-card">
+      <h3>Enterprise procurement requirements</h3>
+      <p>Even without a legal mandate, SBOMs are increasingly part of enterprise security questionnaires. Larger customers &mdash; especially in finance, healthcare, and public sector &mdash; ask vendors to provide an SBOM as part of third-party risk management. Generating one ahead of the ask is low-effort and signals supply chain maturity.</p>
+    </div>
+
+    <div class="callout info-callout">
+      <strong>For most open-source or indie projects, an SBOM is not legally required today.</strong> If you distribute software commercially to regulated industries or sell to US government agencies or into the EU market, check with a lawyer about your specific obligations. The tooling below is accurate regardless of whether you are required to use it.
+    </div>
+
+    <h2 id="formats">SPDX vs CycloneDX</h2>
+
+    <p>Two open formats dominate the SBOM landscape. Both are accepted by NIST&rsquo;s SBOM minimum elements guidance and by the US government&rsquo;s SBOM requirements under EO 14028.</p>
+
+    <table class="compare-table">
+      <thead>
+        <tr>
+          <th>Dimension</th>
+          <th>SPDX</th>
+          <th>CycloneDX</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Governing body</strong></td>
+          <td>Linux Foundation</td>
+          <td>OWASP</td>
+        </tr>
+        <tr>
+          <td><strong>Primary focus</strong></td>
+          <td>License compliance and provenance</td>
+          <td>Supply chain security and vulnerability analysis</td>
+        </tr>
+        <tr>
+          <td><strong>File formats</strong></td>
+          <td>.spdx, .spdx.json, .spdx.tv, .spdx.rdf</td>
+          <td>.json, .xml, .proto</td>
+        </tr>
+        <tr>
+          <td><strong>npm CLI tool</strong></td>
+          <td>spdx-sbom-generator, npm sbom --sbom-format spdx</td>
+          <td>@cyclonedx/cyclonedx-npm, npm sbom --sbom-format cyclonedx</td>
+        </tr>
+        <tr>
+          <td><strong>Vulnerability metadata</strong></td>
+          <td><span class="badge partial">Limited</span></td>
+          <td><span class="badge yes">Rich (CVSS, VEX)</span></td>
+        </tr>
+        <tr>
+          <td><strong>License data detail</strong></td>
+          <td><span class="badge yes">Deep (SPDX license expressions)</span></td>
+          <td><span class="badge yes">Good (SPDX expressions supported)</span></td>
+        </tr>
+        <tr>
+          <td><strong>Security platform support</strong></td>
+          <td><span class="badge partial">Good</span></td>
+          <td><span class="badge yes">Broad (Dependency-Track, Grype, etc.)</span></td>
+        </tr>
+        <tr>
+          <td><strong>Best for</strong></td>
+          <td>Legal / license compliance workflows</td>
+          <td>Security tooling, CI pipelines, vulnerability analysis</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p><strong>Which to pick:</strong> for a new npm project with a security focus, choose CycloneDX. It is the format most security tools consume natively (Dependency-Track, Grype, Trivy, and others all support CycloneDX JSON as input). If your primary concern is license compliance for a legal review, SPDX has slightly richer provenance data. When in doubt, generate both &mdash; both CLI tools are fast and free.</p>
+
+    <h2 id="cyclonedx">Generate an SBOM with CycloneDX</h2>
+    <p>The official CycloneDX npm tool produces a fully-conformant CycloneDX SBOM from your <code class="inline">package.json</code> and <code class="inline">package-lock.json</code>:</p>
+
+    <pre><code># Install as a dev dependency (recommended, keeps the version pinned)
+npm install -D @cyclonedx/cyclonedx-npm
+
+# Or install globally
+npm install -g @cyclonedx/cyclonedx-npm</code></pre>
+
+    <pre><code># Generate a CycloneDX JSON SBOM (most compatible format)
+npx @cyclonedx/cyclonedx-npm --output-format json --output-file sbom.cyclonedx.json
+
+# Generate CycloneDX XML
+npx @cyclonedx/cyclonedx-npm --output-format xml --output-file sbom.cyclonedx.xml
+
+# Include devDependencies (omit flag to generate production-only SBOM)
+npx @cyclonedx/cyclonedx-npm --include-dev --output-format json --output-file sbom.cyclonedx.json
+
+# Omit flattening — preserve the full nested dependency graph
+npx @cyclonedx/cyclonedx-npm --output-format json --output-file sbom.cyclonedx.json</code></pre>
+
+    <h3>What the output contains</h3>
+    <p>The generated JSON file lists every resolved component in your dependency tree with:</p>
+    <ul>
+      <li><strong>Component name, version, and PURL</strong> &mdash; e.g. <code class="inline">pkg:npm/express@4.18.2</code></li>
+      <li><strong>License expression</strong> &mdash; e.g. <code class="inline">MIT</code>, <code class="inline">Apache-2.0</code>, <code class="inline">(MIT OR ISC)</code></li>
+      <li><strong>Component hashes</strong> &mdash; SHA-1 and SHA-256 of the package tarball for integrity verification</li>
+      <li><strong>Dependency graph</strong> &mdash; which component depends on which, as a structured graph (not just a flat list)</li>
+      <li><strong>Metadata</strong> &mdash; the generating tool, timestamp, and the root component being described</li>
+    </ul>
+
+    <div class="callout tip-callout">
+      <strong>Commit the SBOM file at release time, not in the main branch.</strong> Transitive dependencies change with every <code class="inline">npm install</code> (lock file updates, new transitive versions). An SBOM committed to main will be stale within days. Generate a fresh SBOM as part of your release workflow (see CI below) and attach it to the release artifact.
+    </div>
+
+    <h2 id="npm-builtin">Generate an SBOM with npm&rsquo;s built-in command (npm 9+)</h2>
+    <p>npm 9.1.0 added a built-in <code class="inline">npm sbom</code> command. If you have npm 9+ installed, you do not need an extra package:</p>
+
+    <pre><code># Check your npm version
+npm --version  # needs 9.1.0 or later
+
+# Generate a CycloneDX SBOM (prints to stdout)
+npm sbom --sbom-format cyclonedx --sbom-type package > sbom.cyclonedx.json
+
+# Generate an SPDX SBOM
+npm sbom --sbom-format spdx --sbom-type package > sbom.spdx.json
+
+# Include devDependencies
+npm sbom --sbom-format cyclonedx --include-workspace-root > sbom.cyclonedx.json</code></pre>
+
+    <div class="callout warn-callout">
+      <strong>npm sbom vs @cyclonedx/cyclonedx-npm:</strong> npm&rsquo;s built-in command produces a valid SBOM but omits per-component SHA-256 hashes by default (the <code class="inline">--omit</code> and hash options are limited compared to the dedicated tool). For compliance submissions or security platform ingestion, <code class="inline">@cyclonedx/cyclonedx-npm</code> produces a more complete output. For quick checks and internal tooling, <code class="inline">npm sbom</code> is faster and requires no extra install.
+    </div>
+
+    <h2 id="spdx">Generate an SBOM with SPDX tools</h2>
+    <p>If you need SPDX format (common for license compliance workflows, open-source fund audits, or FOSSA integration), <code class="inline">spdx-sbom-generator</code> supports npm alongside Go, Rust, Python, and others from the same CLI:</p>
+
+    <pre><code># Install globally
+npm install -g spdx-sbom-generator
+
+# Generate SPDX JSON (run from your project root)
+spdx-sbom-generator -p . -f json
+# Outputs: bom-npm.json
+
+# Generate SPDX tag-value format
+spdx-sbom-generator -p . -f tv
+# Outputs: bom-npm.spdx</code></pre>
+
+    <p>Alternatively, npm&rsquo;s built-in command supports SPDX format directly (see above). For teams already using the npm CLI and not needing cross-ecosystem SBOMs, <code class="inline">npm sbom --sbom-format spdx</code> is simpler.</p>
+
+    <h2 id="ci">CI integration: auto-generate on release (GitHub Actions)</h2>
+    <p>The most common pattern is to generate the SBOM as part of your release workflow and attach it as a release artifact. This ensures the SBOM matches the exact code that shipped:</p>
+
+    <pre><code># .github/workflows/sbom.yml
+name: Generate SBOM
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  sbom:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # required to upload release assets
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate CycloneDX SBOM
+        run: npx @cyclonedx/cyclonedx-npm --output-format json --output-file sbom.cyclonedx.json
+
+      - name: Upload SBOM as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cyclonedx.json
+
+      # Optional: attach to GitHub release if triggered by a tag push
+      - name: Upload SBOM to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: sbom.cyclonedx.json</code></pre>
+
+    <h3>Add SBOM generation to an existing build workflow</h3>
+    <p>If you already have a build-and-test workflow, add the SBOM step after <code class="inline">npm ci</code> and before your test or lint steps:</p>
+
+    <pre><code>- name: Install dependencies
+  run: npm ci
+
+- name: Generate SBOM
+  run: npx @cyclonedx/cyclonedx-npm --output-format json --output-file sbom.cyclonedx.json
+
+# Your existing test/build steps follow
+- name: Run tests
+  run: npm test</code></pre>
+
+    <h3>Ingest the SBOM into Dependency-Track</h3>
+    <p>Dependency-Track is an open-source component analysis platform (OWASP project) that accepts CycloneDX SBOMs and continuously monitors your components against the NVD, OSV, and other vulnerability feeds. Upload your SBOM via its API:</p>
+
+    <pre><code>- name: Upload SBOM to Dependency-Track
+  if: startsWith(github.ref, 'refs/tags/')
+  run: |
+    curl -X PUT \
+      -H "X-Api-Key: ${{ secrets.DTRACK_API_KEY }}" \
+      -H "Content-Type: multipart/form-data" \
+      -F "project=${{ secrets.DTRACK_PROJECT_UUID }}" \
+      -F "bom=@sbom.cyclonedx.json" \
+      ${{ secrets.DTRACK_URL }}/api/v1/bom</code></pre>
+
+    <p>Dependency-Track can be self-hosted at no cost (Docker image available) and provides a dashboard of all components, their vulnerability status, and policy violations across all your projects.</p>
+
+    <h2 id="depcheck">Using DepCheck alongside your SBOM workflow</h2>
+
+    <p>An SBOM documents the dependency tree you already have. It does not tell you whether a package in that tree has an active CVE, has been abandoned by its maintainer, or shows typosquatting signals. It also does not help you evaluate a package you are <em>considering</em> adding.</p>
+
+    <p>DepCheck fills the upstream gap: paste your <code class="inline">package.json</code> (or a specific package name) before running <code class="inline">npm install</code> to catch risky packages before they enter your dependency tree &mdash; and therefore before they appear in your SBOM. Think of it as a pre-install gate: DepCheck flags what CVE databases don&rsquo;t yet know (typosquatting signals, abandonment, unusual permission requests), while your SBOM tooling documents what you ship.</p>
+
+    <p style="margin:24px 0 8px"><a class="btn primary" href="../">Check your package.json with DepCheck &rarr;</a></p>
+    <p style="margin:0 0 24px;color:var(--muted);font-size:15px">Paste your <code class="inline">package.json</code> and see CVE findings alongside typosquatting signals, abandoned package warnings, and license risk &mdash; no install, no account, all in the browser.</p>
+
+    <h2 id="faq">Frequently asked questions</h2>
+    <div class="faq-section">
+      <details open>
+        <summary>What is an SBOM?</summary>
+        <p>A software bill of materials (SBOM) is a machine-readable inventory of every component in your software &mdash; direct dependencies, transitive dependencies, their versions, licenses, and package identifiers. For an npm project, an SBOM formally documents everything in your <code class="inline">package-lock.json</code> dependency tree in a standardized format (SPDX or CycloneDX) that other tools, auditors, and security platforms can query.</p>
+      </details>
+      <details>
+        <summary>Is generating an SBOM required for npm packages?</summary>
+        <p>Not currently for most npm packages. SBOM requirements are context-dependent. US Executive Order 14028 requires SBOMs for software sold to US federal agencies. The EU Cyber Resilience Act (CRA), with enforcement phased in from 2027, requires SBOMs for commercial products with digital elements sold in the EU. Open-source libraries distributed without a commercial relationship generally fall outside these mandates. Enterprise customers increasingly ask for SBOMs as part of procurement due diligence regardless of legal requirements.</p>
+      </details>
+      <details>
+        <summary>What is the difference between SPDX and CycloneDX?</summary>
+        <p>SPDX (maintained by the Linux Foundation) was designed primarily for license compliance and provenance documentation. CycloneDX (maintained by OWASP) was designed for supply chain security: its schema includes vulnerability references, CVSS scores, and VEX (Vulnerability Exploitability eXchange) metadata alongside the component inventory. CycloneDX is generally the better choice for security tooling integration; SPDX for legal/license workflows. Both are accepted by NIST&rsquo;s SBOM minimum elements guidance.</p>
+      </details>
+      <details>
+        <summary>Does an SBOM replace npm audit?</summary>
+        <p>No. An SBOM documents <em>what is</em> in your dependency tree; npm audit checks whether any of those components have known CVEs. They are complementary. Some security platforms (like Dependency-Track) accept a CycloneDX SBOM as input and run continuous vulnerability monitoring against it &mdash; in that case the SBOM drives the audit. But generating an SBOM without scanning it against a vulnerability feed is only an inventory, not a security check.</p>
+      </details>
+      <details>
+        <summary>How do I generate an SBOM without installing extra tools?</summary>
+        <p>npm 9.1.0 and later include a built-in <code class="inline">npm sbom</code> command. Run:</p>
+        <pre><code>npm sbom --sbom-format cyclonedx --sbom-type package > sbom.cyclonedx.json</code></pre>
+        <p>Use <code class="inline">--sbom-format spdx</code> for SPDX output. This requires no additional dependencies. The output is valid but less detailed than <code class="inline">@cyclonedx/cyclonedx-npm</code> (no per-component SHA-256 hashes by default).</p>
+      </details>
+      <details>
+        <summary>What is a PURL in a CycloneDX SBOM?</summary>
+        <p>A Package URL (PURL) is a standardized string identifier for a software component. For npm packages it looks like <code class="inline">pkg:npm/express@4.18.2</code> &mdash; encoding the package type, name, and version. Vulnerability databases, license scanners, and SCA tools use PURLs to match components without ambiguity across databases. PURLs are how a CycloneDX SBOM connects to external vulnerability feeds (GitHub Advisory DB, OSV, NVD) at query time.</p>
+      </details>
+      <details>
+        <summary>Does DepCheck read my SBOM file?</summary>
+        <p>DepCheck analyzes <code class="inline">package.json</code> by paste, not by reading an SBOM file. The SBOM is a downstream document describing your finalized dependency tree. DepCheck is most useful upstream &mdash; before <code class="inline">npm install</code> or before adding a new dependency &mdash; to flag typosquatting signals, abandoned packages, and risky license terms in packages you are considering. Run DepCheck at dependency selection time; generate your SBOM at build or release time.</p>
+      </details>
+    </div>
+
+    <h2 style="margin-top:48px">Also in the Copper Bay Labs ship-safety suite</h2>
+    <p>SBOM generation is one layer of your pre-ship checklist. These free tools cover the rest:</p>
+    <div class="suite">
+      <a href="../">
+        <span class="s-tag">Dependency risk</span>
+        <span class="s-name">DepCheck</span>
+        <p>Paste your <code class="inline">package.json</code> and see vulnerable, abandoned, typosquatted, and risky-license packages flagged by severity &mdash; browser-native, no install required.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">Secret scanning</span>
+        <span class="s-name">LeakCheck</span>
+        <p>Paste code or a config file and see exposed API keys and secrets before they reach the repo.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/hardencheck/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">HTTP hardening</span>
+        <span class="s-name">HardenCheck</span>
+        <p>Check your security headers and CSP in seconds.</p>
+      </a>
+      <a href="https://labs.copperbaytech.com/shipsafe/" target="_blank" rel="noopener noreferrer">
+        <span class="s-tag">ADA / WCAG</span>
+        <span class="s-name">ShipSafe</span>
+        <p>Scan for ADA/WCAG failures before they become a demand letter.</p>
+      </a>
+    </div>
+  </div>
+</article>
+</main>
+
+<footer class="footer" role="contentinfo">
+  <div class="wrap foot">
+    <div>
+      <a class="brand small" href="../" aria-label="DepCheck &mdash; homepage">
+        <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M30 6 50 16 30 26 10 16 Z" fill="#bf6b3c"/>
+          <path d="M10 16 30 26 30 48 10 38 Z" fill="#cbd2da"/>
+          <path d="M50 16 30 26 30 48 50 38 Z" fill="#aeb6c0"/>
+          <path d="M30 6 30 26" stroke="#8f4a22" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="48" cy="46" r="13" fill="#bf6b3c"/>
+          <path d="M42 46 46.5 50.5 55 41.5" fill="none" stroke="#faf8f4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="wordmark">DepCheck</span>
+      </a>
+      <p class="fine">Heuristic dependency checks, not a security guarantee.</p>
+    </div>
+    <nav class="foot-nav" aria-label="Footer navigation">
+      <a href="../about.html">How it works</a>
+      <a href="fix-npm-audit-vulnerabilities.html">Fix guide</a>
+      <a href="audit-npm-packages-security.html">Audit guide</a>
+      <a href="npm-typosquatting-how-to-detect.html">Typosquatting</a>
+      <a href="npm-license-compliance.html">License guide</a>
+      <a href="audit-node-docker-vulnerabilities.html">Docker guide</a>
+      <a href="npm-audit-vs-snyk-vs-dependabot.html">Tool compare</a>
+      <a href="npm-sbom-cyclonedx-spdx.html" aria-current="page">SBOM guide</a>
+      <a href="https://labs.copperbaytech.com/shipsafe/" target="_blank" rel="noopener noreferrer">ShipSafe</a>
+      <a href="https://labs.copperbaytech.com/leakcheck/" target="_blank" rel="noopener noreferrer">LeakCheck</a>
+      <a href="https://labs.copperbaytech.com/exposurecheck/" target="_blank" rel="noopener noreferrer">ExposureCheck</a>
+      <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Secure my project &rarr;</a>
+    </nav>
+  </div>
+  <div class="wrap">
+    <p class="madeby">A <a href="https://copperbaytech.com" target="_blank" rel="noopener noreferrer">Copper Bay Labs</a> product.</p>
+  </div>
+</footer>
+</body>
+</html>
